@@ -1,9 +1,14 @@
 <!DOCTYPE html>
 <html lang="en">
+<!--
+Budget Build Club Inventory Manager
+Version: 1.0.0
+Last Updated: 2025-10-24
+-->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>COP Kits Inventory Manager</title>
+    <title>Budget Build Club Inventory Manager</title>
     <style>
         * {
             margin: 0;
@@ -336,13 +341,14 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1>🛠️ COP Kits Inventory Manager</h1>
+            <h1>🛠️ Budget Build Club Inventory Manager</h1>
             <p>Track orders, inventory, and profits in real-time</p>
             <div style="margin-top: 15px;">
                 <button id="migrateBtn" class="btn" onclick="migrateDataToFirebase()" style="background: #10b981; display: none;">
                     🔄 Migrate Data to Firebase (Click Once)
                 </button>
                 <span id="firebaseStatus" style="font-size: 12px; opacity: 0.9;">⚡ Connected to Firebase</span>
+                <span style="font-size: 11px; opacity: 0.7; margin-left: 15px;">v1.0.0</span>
             </div>
         </div>
         
@@ -629,6 +635,10 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     
     <script>
+        // App Version
+        const APP_VERSION = '1.0.0';
+        const APP_NAME = 'Budget Build Club Inventory Manager';
+        
         // Firebase Configuration
         const firebaseConfig = {
             apiKey: "AIzaSyAOyGTs-fGXuY08pmmCIxLtB_02_gFwMJs",
@@ -935,21 +945,30 @@
             const name = productName.toLowerCase();
             const skuLower = (sku || '').toLowerCase();
             
-            // Map based on SKU or product name
-            if (skuLower.includes('ka24de-cop-s13') || name.includes('s13')) {
+            // Map based on SKU first (most reliable)
+            if (skuLower === 'ka24de-cop-s13') {
                 return 'S13';
-            } else if (skuLower.includes('ka24de-cop-s14') || name.includes('s14')) {
+            } else if (skuLower === 'ka24de-cop-s14') {
                 return 'S14';
-            } else if (name.includes('distributor cap cover') || name.includes('cap cover')) {
+            }
+            
+            // Then try product name matching
+            if (name.includes('ka24de') && name.includes('s13')) {
+                return 'S13';
+            } else if (name.includes('ka24de') && name.includes('s14')) {
+                return 'S14';
+            } else if (name.includes('ka24') && name.includes('s13') && name.includes('distributor')) {
                 return 'Cap';
-            } else if (name.includes('1nz') || name.includes('smart coil')) {
+            } else if (name.includes('cap cover') || name.includes('distributor cap')) {
+                return 'Cap';
+            } else if (name.includes('1nz') || name.includes('smart coil') || name.includes('1jz/2jz')) {
                 return '1NZ COP Adapter';
-            } else if (name.includes('2jz') && (name.includes('adapter') || name.includes('fffim'))) {
+            } else if (name.includes('2jz') && (name.includes('adapter') || name.includes('fffim') || name.includes('2jz-ge'))) {
                 return '2JZ Intake Adapter';
             }
             
-            // If we can't map it, log it
-            console.log('Could not map product:', productName, 'SKU:', sku);
+            // If we can't map it, log it for debugging
+            console.log('⚠️ Could not map product:', productName, '| SKU:', sku);
             return null;
         }
         
@@ -2187,6 +2206,8 @@
                 }
                 
                 const row = document.createElement('tr');
+                row.style.cursor = 'pointer';
+                row.onclick = () => editOrder(order.id);
                 row.innerHTML = `
                     <td><strong>${order.name}</strong></td>
                     <td>${items.join(', ')}</td>

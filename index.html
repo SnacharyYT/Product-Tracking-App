@@ -824,9 +824,11 @@
         // Check if Firebase has data, if not show migration button
         async function checkForExistingData() {
             const ordersSnapshot = await db.collection('orders').limit(1).get();
-            if (ordersSnapshot.empty) {
+            const kitsSnapshot = await db.collection('kits').limit(1).get();
+            
+            if (ordersSnapshot.empty || kitsSnapshot.empty) {
                 document.getElementById('migrateBtn').style.display = 'inline-block';
-                document.getElementById('firebaseStatus').textContent = '⚠️ No data in Firebase - Click migrate button';
+                document.getElementById('firebaseStatus').textContent = '⚠️ No data in Firebase - Click migrate button to upload initial data';
             }
         }
         
@@ -1030,7 +1032,7 @@
         
         let nextOrderId = 22;
         
-        const components = {
+        let components = {
             "4x4x18\" Box": { onHand: 40, onOrder: 0, eta: "", costType: "box", boxSize: 25, costPerBox: 39 },
             "0.5x0.25x0.3125\" Spacer": { onHand: 98, onOrder: 0, eta: "", costType: "box", boxSize: 50, costPerBox: 24 },
             "0.5x0.25x1.375\" Spacer": { onHand: 0, onOrder: 0, eta: "", costType: "piece", costPerPiece: 3.94 },

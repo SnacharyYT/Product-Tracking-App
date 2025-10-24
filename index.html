@@ -913,8 +913,14 @@ Last Updated: 2025-10-24
                 const kitName = mapProductToKit(productName, sku);
                 if (kitName) {
                     ordersMap[orderNum].products[kitName] = (ordersMap[orderNum].products[kitName] || 0) + qty;
+                    console.log(`  Mapped: "${productName}" (SKU: "${sku}") → ${kitName} (qty: ${qty})`);
+                } else {
+                    console.warn(`  ❌ Failed to map: "${productName}" (SKU: "${sku}")`);
                 }
             }
+            
+            console.log('📋 Parsed orders from CSV:', Object.keys(ordersMap).length);
+            console.log('Orders data:', ordersMap);
             
             // Convert to orders and import
             importOrders(Object.values(ordersMap));
@@ -977,7 +983,11 @@ Last Updated: 2025-10-24
             let skipped = 0;
             let updated = 0;
             
+            console.log('📦 Starting import of', csvOrders.length, 'orders');
+            
             for (const csvOrder of csvOrders) {
+                console.log('Processing order:', csvOrder.shopifyOrderNumber, 'Products:', csvOrder.products);
+                
                 // Check if order already exists
                 const existing = orders.find(o => o.shopifyOrderNumber === csvOrder.shopifyOrderNumber);
                 
@@ -985,9 +995,13 @@ Last Updated: 2025-10-24
                     // Update existing order
                     existing.paid = csvOrder.paid;
                     existing.shipped = csvOrder.shipped;
+                    existing.name = csvOrder.name; // Update name too
+                    
                     // Merge products
                     for (const [kit, qty] of Object.entries(csvOrder.products)) {
-                        existing[kit.toLowerCase()] = qty;
+                        const kitKey = kit.toLowerCase();
+                        existing[kitKey] = qty;
+                        console.log('  ✓ Added to existing:', kitKey, '=', qty);
                     }
                     await saveOrderToFirebase(existing);
                     updated++;
@@ -1004,8 +1018,12 @@ Last Updated: 2025-10-24
                     
                     // Add products
                     for (const [kit, qty] of Object.entries(csvOrder.products)) {
-                        newOrder[kit.toLowerCase()] = qty;
+                        const kitKey = kit.toLowerCase();
+                        newOrder[kitKey] = qty;
+                        console.log('  ✓ Added to new order:', kitKey, '=', qty);
                     }
+                    
+                    console.log('Final new order object:', newOrder);
                     
                     orders.push(newOrder);
                     await saveOrderToFirebase(newOrder);
@@ -1015,6 +1033,7 @@ Last Updated: 2025-10-24
             
             await saveNextOrderIdToFirebase();
             
+            console.log('✅ Import complete! Imported:', imported, 'Updated:', updated, 'Skipped:', skipped);
             alert(`Import complete!\n\nImported: ${imported} new orders\nUpdated: ${updated} existing orders\nSkipped: ${skipped} orders`);
             
             updateStats();

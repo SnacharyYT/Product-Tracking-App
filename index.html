@@ -831,6 +831,176 @@
         }
         
         checkForExistingData();
+        
+        // CSV Import Functions
+        function handleCSVImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const csv = e.target.result;
+                parseShopifyCSV(csv);
+            };
+            reader.readAsText(file);
+        }
+        
+        function parseShopifyCSV(csv) {
+            const lines = csv.split('\n');
+            if (lines.length < 2) {
+                alert('CSV file appears to be empty');
+                return;
+            }
+            
+            // Parse header
+            const headers = lines[0].split(',').map(h => h.trim());
+            const nameIndex = headers.indexOf('Name');
+            const billingNameIndex = headers.indexOf('Billing Name');
+            const financialStatusIndex = headers.indexOf('Financial Status');
+            const fulfillmentStatusIndex = headers.indexOf('Fulfillment Status');
+            const lineitemNameIndex = headers.indexOf('Lineitem name');
+            const lineitemSkuIndex = headers.indexOf('Lineitem sku');
+            const lineitemQtyIndex = headers.indexOf('Lineitem quantity');
+            
+            if (nameIndex === -1 || billingNameIndex === -1) {
+                alert('CSV format not recognized. Make sure this is a Shopify orders export.');
+                return;
+            }
+            
+            // Group orders by order number
+            const ordersMap = {};
+            
+            for (let i = 1; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (!line) continue;
+                
+                const values = parseCSVLine(line);
+                const orderNum = values[nameIndex]?.replace('#', '');
+                const customerName = values[billingNameIndex];
+                const financialStatus = values[financialStatusIndex];
+                const fulfillmentStatus = values[fulfillmentStatusIndex];
+                const productName = values[lineitemNameIndex];
+                const sku = values[lineitemSkuIndex];
+                const qty = parseInt(values[lineitemQtyIndex]) || 0;
+                
+                if (!orderNum || !productName) continue;
+                
+                // Initialize order if not exists
+                if (!ordersMap[orderNum]) {
+                    ordersMap[orderNum] = {
+                        shopifyOrderNumber: orderNum,
+                        name: customerName || 'Unknown Customer',
+                        paid: financialStatus === 'paid',
+                        shipped: fulfillmentStatus === 'fulfilled',
+                        tracking: '',
+                        products: {}
+                    };
+                }
+                
+                // Map product to kit
+                const kitName = mapProductToKit(productName, sku);
+                if (kitName) {
+                    ordersMap[orderNum].products[kitName] = (ordersMap[orderNum].products[kitName] || 0) + qty;
+                }
+            }
+            
+            // Convert to orders and import
+            importOrders(Object.values(ordersMap));
+        }
+        
+        function parseCSVLine(line) {
+            const values = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    values.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            values.push(current.trim());
+            return values;
+        }
+        
+        function mapProductToKit(productName, sku) {
+            const name = productName.toLowerCase();
+            const skuLower = (sku || '').toLowerCase();
+            
+            // Map based on SKU or product name
+            if (skuLower.includes('ka24de-cop-s13') || name.includes('s13')) {
+                return 'S13';
+            } else if (skuLower.includes('ka24de-cop-s14') || name.includes('s14')) {
+                return 'S14';
+            } else if (name.includes('distributor cap cover') || name.includes('cap cover')) {
+                return 'Cap';
+            } else if (name.includes('1nz') || name.includes('smart coil')) {
+                return '1NZ COP Adapter';
+            } else if (name.includes('2jz') && (name.includes('adapter') || name.includes('fffim'))) {
+                return '2JZ Intake Adapter';
+            }
+            
+            // If we can't map it, log it
+            console.log('Could not map product:', productName, 'SKU:', sku);
+            return null;
+        }
+        
+        async function importOrders(csvOrders) {
+            let imported = 0;
+            let skipped = 0;
+            let updated = 0;
+            
+            for (const csvOrder of csvOrders) {
+                // Check if order already exists
+                const existing = orders.find(o => o.shopifyOrderNumber === csvOrder.shopifyOrderNumber);
+                
+                if (existing) {
+                    // Update existing order
+                    existing.paid = csvOrder.paid;
+                    existing.shipped = csvOrder.shipped;
+                    // Merge products
+                    for (const [kit, qty] of Object.entries(csvOrder.products)) {
+                        existing[kit.toLowerCase()] = qty;
+                    }
+                    await saveOrderToFirebase(existing);
+                    updated++;
+                } else {
+                    // Create new order
+                    const newOrder = {
+                        id: nextOrderId++,
+                        shopifyOrderNumber: csvOrder.shopifyOrderNumber,
+                        name: csvOrder.name,
+                        paid: csvOrder.paid,
+                        shipped: csvOrder.shipped,
+                        tracking: csvOrder.tracking
+                    };
+                    
+                    // Add products
+                    for (const [kit, qty] of Object.entries(csvOrder.products)) {
+                        newOrder[kit.toLowerCase()] = qty;
+                    }
+                    
+                    orders.push(newOrder);
+                    await saveOrderToFirebase(newOrder);
+                    imported++;
+                }
+            }
+            
+            await saveNextOrderIdToFirebase();
+            
+            alert(`Import complete!\n\nImported: ${imported} new orders\nUpdated: ${updated} existing orders\nSkipped: ${skipped} orders`);
+            
+            updateStats();
+            renderOrders();
+            renderInventory();
+            renderShippedOrders();
+        }
     </script>
     
     <script>

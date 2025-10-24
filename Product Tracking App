@@ -338,6 +338,12 @@
         <div class="header">
             <h1>🛠️ COP Kits Inventory Manager</h1>
             <p>Track orders, inventory, and profits in real-time</p>
+            <div style="margin-top: 15px;">
+                <button id="migrateBtn" class="btn" onclick="migrateDataToFirebase()" style="background: #10b981; display: none;">
+                    🔄 Migrate Data to Firebase (Click Once)
+                </button>
+                <span id="firebaseStatus" style="font-size: 12px; opacity: 0.9;">⚡ Connected to Firebase</span>
+            </div>
         </div>
         
         <div class="stats-grid">
@@ -617,6 +623,215 @@
             </div>
         </div>
     </div>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    
+    <script>
+        // Firebase Configuration
+        const firebaseConfig = {
+            apiKey: "AIzaSyAOyGTs-fGXuY08pmmCIxLtB_02_gFwMJs",
+            authDomain: "inventory-464e0.firebaseapp.com",
+            projectId: "inventory-464e0",
+            storageBucket: "inventory-464e0.firebasestorage.app",
+            messagingSenderId: "1042168855557",
+            appId: "1:1042168855557:web:1165defaf0bee779e8706c",
+            measurementId: "G-GVMPEE014J"
+        };
+        
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        
+        // Loading state
+        let isLoading = true;
+        let dataLoaded = {
+            orders: false,
+            components: false,
+            kits: false
+        };
+        
+        function checkAllDataLoaded() {
+            if (dataLoaded.orders && dataLoaded.components && dataLoaded.kits) {
+                isLoading = false;
+                console.log('All data loaded from Firebase');
+                updateStats();
+                renderOrders();
+                renderInventory();
+                renderKits();
+                renderShippedOrders();
+            }
+        }
+        
+        // Firebase Save Functions
+        async function saveOrderToFirebase(order) {
+            try {
+                await db.collection('orders').doc(order.id.toString()).set(order);
+                console.log('Order saved:', order.id);
+            } catch (error) {
+                console.error('Error saving order:', error);
+                alert('Failed to save order. Check console for details.');
+            }
+        }
+        
+        async function deleteOrderFromFirebase(orderId) {
+            try {
+                await db.collection('orders').doc(orderId.toString()).delete();
+                console.log('Order deleted:', orderId);
+            } catch (error) {
+                console.error('Error deleting order:', error);
+            }
+        }
+        
+        async function saveComponentToFirebase(name, component) {
+            try {
+                await db.collection('components').doc(name).set(component);
+                console.log('Component saved:', name);
+            } catch (error) {
+                console.error('Error saving component:', error);
+                alert('Failed to save component. Check console for details.');
+            }
+        }
+        
+        async function deleteComponentFromFirebase(name) {
+            try {
+                await db.collection('components').doc(name).delete();
+                console.log('Component deleted:', name);
+            } catch (error) {
+                console.error('Error deleting component:', error);
+            }
+        }
+        
+        async function saveKitToFirebase(name, kit) {
+            try {
+                await db.collection('kits').doc(name).set(kit);
+                console.log('Kit saved:', name);
+            } catch (error) {
+                console.error('Error saving kit:', error);
+                alert('Failed to save kit. Check console for details.');
+            }
+        }
+        
+        async function deleteKitFromFirebase(name) {
+            try {
+                await db.collection('kits').doc(name).delete();
+                console.log('Kit deleted:', name);
+            } catch (error) {
+                console.error('Error deleting kit:', error);
+            }
+        }
+        
+        async function saveNextOrderIdToFirebase() {
+            try {
+                await db.collection('settings').doc('nextOrderId').set({ value: nextOrderId });
+            } catch (error) {
+                console.error('Error saving nextOrderId:', error);
+            }
+        }
+        
+        // Firebase Load Functions
+        function loadDataFromFirebase() {
+            // Load Orders
+            db.collection('orders').onSnapshot((snapshot) => {
+                orders = [];
+                snapshot.forEach((doc) => {
+                    orders.push(doc.data());
+                });
+                orders.sort((a, b) => a.id - b.id);
+                dataLoaded.orders = true;
+                console.log('Orders loaded:', orders.length);
+                checkAllDataLoaded();
+                if (!isLoading) {
+                    updateStats();
+                    renderOrders();
+                    renderShippedOrders();
+                }
+            });
+            
+            // Load Components
+            db.collection('components').onSnapshot((snapshot) => {
+                components = {};
+                snapshot.forEach((doc) => {
+                    components[doc.id] = doc.data();
+                });
+                dataLoaded.components = true;
+                console.log('Components loaded:', Object.keys(components).length);
+                checkAllDataLoaded();
+                if (!isLoading) {
+                    renderInventory();
+                }
+            });
+            
+            // Load Kits
+            db.collection('kits').onSnapshot((snapshot) => {
+                kits = {};
+                snapshot.forEach((doc) => {
+                    kits[doc.id] = doc.data();
+                });
+                dataLoaded.kits = true;
+                console.log('Kits loaded:', Object.keys(kits).length);
+                checkAllDataLoaded();
+                if (!isLoading) {
+                    renderKits();
+                }
+            });
+            
+            // Load nextOrderId
+            db.collection('settings').doc('nextOrderId').get().then((doc) => {
+                if (doc.exists) {
+                    nextOrderId = doc.data().value;
+                    console.log('NextOrderId loaded:', nextOrderId);
+                }
+            });
+        }
+        
+        // Initial data migration function (run once to populate Firebase)
+        async function migrateDataToFirebase() {
+            if (!confirm('This will upload your current data to Firebase. This should only be done once on first setup. Continue?')) {
+                return;
+            }
+            
+            document.getElementById('migrateBtn').textContent = '⏳ Migrating...';
+            document.getElementById('migrateBtn').disabled = true;
+            
+            console.log('Starting data migration to Firebase...');
+            
+            // Migrate orders
+            for (const order of orders) {
+                await saveOrderToFirebase(order);
+            }
+            
+            // Migrate components
+            for (const [name, component] of Object.entries(components)) {
+                await saveComponentToFirebase(name, component);
+            }
+            
+            // Migrate kits
+            for (const [name, kit] of Object.entries(kits)) {
+                await saveKitToFirebase(name, kit);
+            }
+            
+            // Save nextOrderId
+            await saveNextOrderIdToFirebase();
+            
+            console.log('Data migration complete!');
+            alert('Data has been migrated to Firebase successfully! Refreshing page...');
+            document.getElementById('migrateBtn').style.display = 'none';
+            location.reload();
+        }
+        
+        // Check if Firebase has data, if not show migration button
+        async function checkForExistingData() {
+            const ordersSnapshot = await db.collection('orders').limit(1).get();
+            if (ordersSnapshot.empty) {
+                document.getElementById('migrateBtn').style.display = 'inline-block';
+                document.getElementById('firebaseStatus').textContent = '⚠️ No data in Firebase - Click migrate button';
+            }
+        }
+        
+        checkForExistingData();
+    </script>
     
     <script>
         let orders = [
@@ -1124,6 +1339,8 @@
             }
             
             orders.push(newOrder);
+            saveOrderToFirebase(newOrder);
+            saveNextOrderIdToFirebase();
             closeNewOrderModal();
             updateStats(); 
             renderOrders(); 
@@ -1197,6 +1414,7 @@
                 Object.assign(comp, costData);
             }
             
+            saveComponentToFirebase(name, components[name]);
             closeEditComponentModal();
             renderInventory();
             renderOrders();
@@ -1257,6 +1475,7 @@
                 order[kitName.toLowerCase()] = parseInt(input.value) || 0;
             }
             
+            saveOrderToFirebase(order);
             closeNewOrderModal();
             updateStats();
             renderOrders();
@@ -1269,6 +1488,7 @@
             
             const index = orders.findIndex(o => o.id === currentEditOrderId);
             if (index > -1) {
+                deleteOrderFromFirebase(currentEditOrderId);
                 orders.splice(index, 1);
             }
             
@@ -1323,10 +1543,12 @@
                     if (comp) {
                         const totalNeeded = componentQty * qtyNeeded;
                         comp.onHand -= totalNeeded;
+                        saveComponentToFirebase(componentName, comp);
                     }
                 }
             }
             
+            saveOrderToFirebase(order);
             closeShipOrderModal();
             updateStats();
             renderOrders();
@@ -1350,6 +1572,7 @@
                     if (comp) {
                         const totalNeeded = componentQty * qtyNeeded;
                         comp.onHand += totalNeeded;
+                        saveComponentToFirebase(componentName, comp);
                     }
                 }
             }
@@ -1357,6 +1580,7 @@
             order.shipped = false;
             order.tracking = '';
             
+            saveOrderToFirebase(order);
             updateStats();
             renderOrders();
             renderInventory();
@@ -1480,6 +1704,7 @@
                 }
             }
             
+            deleteComponentFromFirebase(currentEditComponent);
             delete components[currentEditComponent];
             
             closeComponentModal();
@@ -1571,6 +1796,7 @@
             kit.price = price;
             kit.components = selectedComponents;
             
+            saveKitToFirebase(currentEditKit, kit);
             closeNewKitModal();
             renderKits();
         }
@@ -1579,6 +1805,7 @@
             if (!currentEditKit) return;
             if (!confirm(`Are you sure you want to delete the ${currentEditKit} kit?`)) return;
             
+            deleteKitFromFirebase(currentEditKit);
             delete kits[currentEditKit];
             
             closeNewKitModal();
@@ -1799,12 +2026,12 @@
             });
         }
         
-        // Initialize
-        updateStats();
-        renderOrders();
-        renderInventory();
-        renderKits();
-        renderShippedOrders();
+        // Initialize - Load data from Firebase
+        // On first load, you need to run migrateDataToFirebase() once
+        // Open console and type: migrateDataToFirebase()
+        loadDataFromFirebase();
+        
+        // After data is loaded, the checkAllDataLoaded() function will render everything
     </script>
 </body>
 </html>

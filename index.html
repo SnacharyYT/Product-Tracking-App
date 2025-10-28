@@ -2,10 +2,18 @@
 <html lang="en">
 <!--
 Budget Build Club Inventory Manager
-Version: 1.1.0
+Version: 1.1.1
 Last Updated: 2025-10-28
 
 CHANGELOG:
+v1.1.1 (2025-10-28)
+- Fixed Firebase function imports not being exposed to global scope
+- Fixed "getDocs is not defined" error on page load
+- Fixed "doc is not defined" error when importing CSVs
+- Enhanced Export Inventory button to include comprehensive data export with all kits and components
+- Added structured export format with separate sections for inventory and kit requirements
+- Improved error handling for Firebase connection issues
+
 v1.1.0 (2025-10-28)
 - Replaced clickable Firebase migration button with status pill indicator
 - Added automatic Firebase sync when CSV files are uploaded
@@ -531,7 +539,7 @@ v1.0.4 (2025-10-24)
                         📥 Import Inventory CSV
                         <input type="file" id="importInventoryCSV" accept=".csv" onchange="importInventoryCSV(event)">
                     </label>
-                    <button class="btn" onclick="exportInventoryCSV()">📤 Export Inventory</button>
+                    <button class="btn" onclick="exportInventoryCSV()">📤 Export Full Inventory</button>
                 </div>
                 <table>
                     <thead>
@@ -706,17 +714,21 @@ v1.0.4 (2025-10-24)
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         
-        window.db = db;
-        window.collection = collection;
-        window.doc = doc;
-        window.setDoc = setDoc;
-        window.getDoc = getDoc;
-        window.getDocs = getDocs;
-        window.deleteDoc = deleteDoc;
-        window.writeBatch = writeBatch;
+        // Expose Firebase functions to global scope
+        window.firebaseDB = db;
+        window.firebaseCollection = collection;
+        window.firebaseDoc = doc;
+        window.firebaseSetDoc = setDoc;
+        window.firebaseGetDoc = getDoc;
+        window.firebaseGetDocs = getDocs;
+        window.firebaseDeleteDoc = deleteDoc;
+        window.firebaseWriteBatch = writeBatch;
         
         // Update Firebase status
-        updateFirebaseStatus('connected', 'Connected');
+        window.updateFirebaseStatus('connected', 'Connected');
+        
+        // Initialize data loading
+        window.initializeApp();
     </script>
     
     <script>
@@ -733,6 +745,12 @@ v1.0.4 (2025-10-24)
             kits: false,
             nextOrderId: false
         };
+        
+        // Initialize app function
+        function initializeApp() {
+            loadDataFromFirebase();
+            loadNextOrderId();
+        }
         
         // Firebase Status Updates
         function updateFirebaseStatus(status, text) {
@@ -761,28 +779,28 @@ v1.0.4 (2025-10-24)
         }
         
         async function saveAllDataToFirebase() {
-            const batch = writeBatch(db);
+            const batch = firebaseWriteBatch(firebaseDB);
             
             // Save orders
             for (const order of orders) {
-                const orderRef = doc(db, 'orders', String(order.id));
+                const orderRef = firebaseDoc(firebaseDB, 'orders', String(order.id));
                 batch.set(orderRef, order);
             }
             
             // Save components
             for (const [name, comp] of Object.entries(components)) {
-                const compRef = doc(db, 'components', name);
+                const compRef = firebaseDoc(firebaseDB, 'components', name);
                 batch.set(compRef, comp);
             }
             
             // Save kits
             for (const [name, kit] of Object.entries(kits)) {
-                const kitRef = doc(db, 'kits', name);
+                const kitRef = firebaseDoc(firebaseDB, 'kits', name);
                 batch.set(kitRef, kit);
             }
             
             // Save nextOrderId
-            const nextOrderIdRef = doc(db, 'metadata', 'nextOrderId');
+            const nextOrderIdRef = firebaseDoc(firebaseDB, 'metadata', 'nextOrderId');
             batch.set(nextOrderIdRef, { value: nextOrderId });
             
             await batch.commit();
@@ -794,7 +812,7 @@ v1.0.4 (2025-10-24)
             
             try {
                 // Load orders
-                const ordersSnapshot = await getDocs(collection(db, 'orders'));
+                const ordersSnapshot = await firebaseGetDocs(firebaseCollection(firebaseDB, 'orders'));
                 orders = [];
                 ordersSnapshot.forEach(doc => {
                     orders.push(doc.data());
@@ -803,7 +821,7 @@ v1.0.4 (2025-10-24)
                 console.log('Orders loaded:', orders.length);
                 
                 // Load components
-                const componentsSnapshot = await getDocs(collection(db, 'components'));
+                const componentsSnapshot = await firebaseGetDocs(firebaseCollection(firebaseDB, 'components'));
                 components = {};
                 componentsSnapshot.forEach(doc => {
                     components[doc.id] = doc.data();
@@ -812,7 +830,7 @@ v1.0.4 (2025-10-24)
                 console.log('Components loaded:', Object.keys(components).length);
                 
                 // Load kits
-                const kitsSnapshot = await getDocs(collection(db, 'kits'));
+                const kitsSnapshot = await firebaseGetDocs(firebaseCollection(firebaseDB, 'kits'));
                 kits = {};
                 kitsSnapshot.forEach(doc => {
                     kits[doc.id] = doc.data();
@@ -825,6 +843,11 @@ v1.0.4 (2025-10-24)
                 console.error('Error loading from Firebase:', error);
                 updateFirebaseStatus('disconnected', 'Load Failed');
                 showToast('Failed to load data from Firebase');
+                // Still mark as loaded so app can continue
+                dataLoaded.orders = true;
+                dataLoaded.components = true;
+                dataLoaded.kits = true;
+                checkAllDataLoaded();
             }
         }
         
@@ -842,8 +865,8 @@ v1.0.4 (2025-10-24)
         
         async function loadNextOrderId() {
             try {
-                const docRef = doc(db, 'metadata', 'nextOrderId');
-                const docSnap = await getDoc(docRef);
+                const docRef = firebaseDoc(firebaseDB, 'metadata', 'nextOrderId');
+                const docSnap = await firebaseGetDoc(docRef);
                 if (docSnap.exists()) {
                     nextOrderId = docSnap.data().value;
                 } else {
@@ -862,8 +885,8 @@ v1.0.4 (2025-10-24)
         
         async function saveOrderToFirebase(order) {
             try {
-                const orderRef = doc(db, 'orders', String(order.id));
-                await setDoc(orderRef, order);
+                const orderRef = firebaseDoc(firebaseDB, 'orders', String(order.id));
+                await firebaseSetDoc(orderRef, order);
             } catch (error) {
                 console.error('Error saving order:', error);
                 showToast('Failed to save order to Firebase');
@@ -872,8 +895,8 @@ v1.0.4 (2025-10-24)
         
         async function deleteOrderFromFirebase(orderId) {
             try {
-                const orderRef = doc(db, 'orders', String(orderId));
-                await deleteDoc(orderRef);
+                const orderRef = firebaseDoc(firebaseDB, 'orders', String(orderId));
+                await firebaseDeleteDoc(orderRef);
             } catch (error) {
                 console.error('Error deleting order:', error);
                 showToast('Failed to delete order from Firebase');
@@ -882,8 +905,8 @@ v1.0.4 (2025-10-24)
         
         async function saveComponentToFirebase(name, component) {
             try {
-                const compRef = doc(db, 'components', name);
-                await setDoc(compRef, component);
+                const compRef = firebaseDoc(firebaseDB, 'components', name);
+                await firebaseSetDoc(compRef, component);
             } catch (error) {
                 console.error('Error saving component:', error);
                 showToast('Failed to save component to Firebase');
@@ -892,8 +915,8 @@ v1.0.4 (2025-10-24)
         
         async function deleteComponentFromFirebase(name) {
             try {
-                const compRef = doc(db, 'components', name);
-                await deleteDoc(compRef);
+                const compRef = firebaseDoc(firebaseDB, 'components', name);
+                await firebaseDeleteDoc(compRef);
             } catch (error) {
                 console.error('Error deleting component:', error);
                 showToast('Failed to delete component from Firebase');
@@ -902,8 +925,8 @@ v1.0.4 (2025-10-24)
         
         async function saveKitToFirebase(name, kit) {
             try {
-                const kitRef = doc(db, 'kits', name);
-                await setDoc(kitRef, kit);
+                const kitRef = firebaseDoc(firebaseDB, 'kits', name);
+                await firebaseSetDoc(kitRef, kit);
             } catch (error) {
                 console.error('Error saving kit:', error);
                 showToast('Failed to save kit to Firebase');
@@ -912,8 +935,8 @@ v1.0.4 (2025-10-24)
         
         async function deleteKitFromFirebase(name) {
             try {
-                const kitRef = doc(db, 'kits', name);
-                await deleteDoc(kitRef);
+                const kitRef = firebaseDoc(firebaseDB, 'kits', name);
+                await firebaseDeleteDoc(kitRef);
             } catch (error) {
                 console.error('Error deleting kit:', error);
                 showToast('Failed to delete kit from Firebase');
@@ -922,8 +945,8 @@ v1.0.4 (2025-10-24)
         
         async function saveNextOrderId() {
             try {
-                const nextOrderIdRef = doc(db, 'metadata', 'nextOrderId');
-                await setDoc(nextOrderIdRef, { value: nextOrderId });
+                const nextOrderIdRef = firebaseDoc(firebaseDB, 'metadata', 'nextOrderId');
+                await firebaseSetDoc(nextOrderIdRef, { value: nextOrderId });
             } catch (error) {
                 console.error('Error saving nextOrderId:', error);
             }
@@ -1218,18 +1241,72 @@ v1.0.4 (2025-10-24)
         }
         
         function exportInventoryCSV() {
-            let csv = 'Component,On Hand,On Order,ETA\n';
+            // Create comprehensive inventory export with all kits and components
+            let csv = '=== COMPONENT INVENTORY ===\n';
+            csv += 'Component,On Hand,On Order,ETA,Needed for Active Orders\n';
+            
+            // Calculate needed quantities for each component
+            const paidOrders = orders.filter(o => o.paid && !o.shipped);
+            const neededQuantities = {};
+            
+            paidOrders.forEach(order => {
+                for (const [kitName, kit] of Object.entries(kits)) {
+                    const kitQty = order[kitName.toLowerCase()] || 0;
+                    if (kitQty > 0) {
+                        for (const [componentName, componentQty] of Object.entries(kit.components)) {
+                            neededQuantities[componentName] = (neededQuantities[componentName] || 0) + (kitQty * componentQty);
+                        }
+                    }
+                }
+            });
+            
             for (const [name, comp] of Object.entries(components)) {
-                csv += `${name},${comp.onHand},${comp.onOrder},${comp.eta}\n`;
+                const needed = neededQuantities[name] || 0;
+                csv += `${name},${comp.onHand},${comp.onOrder},${comp.eta},${needed}\n`;
             }
+            
+            csv += '\n=== KIT DEFINITIONS ===\n';
+            csv += 'Kit Name,Cost,Price,Components Required,Can Make with Current Inventory\n';
+            
+            for (const [kitName, kit] of Object.entries(kits)) {
+                const canMake = calculateKitsCanMake(kitName);
+                const componentsList = Object.entries(kit.components)
+                    .map(([comp, qty]) => `${qty}× ${comp}`)
+                    .join('; ');
+                csv += `${kitName},${kit.cost},${kit.price},"${componentsList}",${canMake}\n`;
+            }
+            
+            csv += '\n=== KIT REQUIREMENTS PER COMPONENT ===\n';
+            csv += 'Component Name';
+            for (const kitName of Object.keys(kits)) {
+                csv += `,${kitName}`;
+            }
+            csv += '\n';
+            
+            // Create a matrix showing which components are needed for each kit
+            for (const componentName of Object.keys(components)) {
+                csv += componentName;
+                for (const [kitName, kit] of Object.entries(kits)) {
+                    const qty = kit.components[componentName] || 0;
+                    csv += `,${qty}`;
+                }
+                csv += '\n';
+            }
+            
+            csv += '\n=== SUMMARY ===\n';
+            csv += `Total Components,${Object.keys(components).length}\n`;
+            csv += `Total Kits,${Object.keys(kits).length}\n`;
+            csv += `Active Paid Orders,${paidOrders.length}\n`;
             
             const blob = new Blob([csv], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'inventory.csv';
+            const date = new Date().toISOString().split('T')[0];
+            a.download = `full-inventory-export-${date}.csv`;
             a.click();
             URL.revokeObjectURL(url);
+            showToast('Full inventory exported with kits and components');
         }
         
         function importOrdersCSV(event) {
@@ -1389,7 +1466,7 @@ v1.0.4 (2025-10-24)
                         const kitName = parts[0];
                         const cost = parseFloat(parts[1]) || 0;
                         const price = parseFloat(parts[2]) || 0;
-                        const componentsStr = parts[3];
+                        const componentsStr = parts[3].replace(/^"|"$/g, '');
                         
                         const componentsObj = {};
                         if (componentsStr) {
@@ -1773,10 +1850,6 @@ v1.0.4 (2025-10-24)
                 tbody.appendChild(row);
             });
         }
-        
-        // Initialize - Load data from Firebase
-        loadDataFromFirebase();
-        loadNextOrderId();
     </script>
 </body>
 </html>

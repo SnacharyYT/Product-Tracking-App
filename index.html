@@ -2,8 +2,19 @@
 <html lang="en">
 <!--
 Budget Build Club Inventory Manager
-Version: 1.0.4
-Last Updated: 2025-10-24
+Version: 1.1.0
+Last Updated: 2025-10-28
+
+CHANGELOG:
+v1.1.0 (2025-10-28)
+- Replaced clickable Firebase migration button with status pill indicator
+- Added automatic Firebase sync when CSV files are uploaded
+- Improved error handling for empty collections
+- Enhanced Firebase connection status display
+- Removed manual migration requirement
+
+v1.0.4 (2025-10-24)
+- Previous stable version
 -->
 <head>
     <meta charset="UTF-8">
@@ -37,11 +48,60 @@ Last Updated: 2025-10-24
             color: white;
             padding: 30px;
             text-align: center;
+            position: relative;
         }
         
         .header h1 {
             font-size: 32px;
             margin-bottom: 10px;
+        }
+        
+        .firebase-status-container {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .firebase-status-pill {
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            padding: 8px 16px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .firebase-status-pill.connected {
+            background: rgba(16, 185, 129, 0.9);
+        }
+        
+        .firebase-status-pill.disconnected {
+            background: rgba(239, 68, 68, 0.9);
+        }
+        
+        .firebase-status-pill.syncing {
+            background: rgba(245, 158, 11, 0.9);
+        }
+        
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: white;
+            animation: pulse 2s ease-in-out infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
         }
         
         .stats-grid {
@@ -240,7 +300,7 @@ Last Updated: 2025-10-24
             background: #e5e7eb;
             border-radius: 12px;
             overflow: hidden;
-            margin: 20px 0;
+            position: relative;
         }
         
         .progress-fill {
@@ -251,7 +311,7 @@ Last Updated: 2025-10-24
             align-items: center;
             justify-content: center;
             color: white;
-            font-weight: bold;
+            font-weight: 600;
             font-size: 12px;
         }
         
@@ -260,12 +320,12 @@ Last Updated: 2025-10-24
             position: fixed;
             top: 0;
             left: 0;
-            right: 0;
-            bottom: 0;
+            width: 100%;
+            height: 100%;
             background: rgba(0,0,0,0.7);
             z-index: 1000;
-            align-items: center;
             justify-content: center;
+            align-items: center;
         }
         
         .modal.active {
@@ -274,15 +334,16 @@ Last Updated: 2025-10-24
         
         .modal-content {
             background: white;
-            padding: 30px;
             border-radius: 16px;
-            max-width: 500px;
+            padding: 30px;
+            max-width: 600px;
             width: 90%;
             max-height: 90vh;
             overflow-y: auto;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
         }
         
-        .modal-content h3 {
+        .modal-content h2 {
             margin-bottom: 20px;
             color: #333;
         }
@@ -305,6 +366,7 @@ Last Updated: 2025-10-24
             border: 2px solid #e5e7eb;
             border-radius: 8px;
             font-size: 14px;
+            transition: border-color 0.2s;
         }
         
         .form-group input:focus,
@@ -313,120 +375,169 @@ Last Updated: 2025-10-24
             border-color: #667eea;
         }
         
-        .form-actions {
-            display: flex;
-            gap: 10px;
-            justify-content: flex-end;
-            margin-top: 20px;
-        }
-        
-        .component-checkbox {
+        .checkbox-group {
             display: flex;
             align-items: center;
             gap: 10px;
-            padding: 10px;
-            margin-bottom: 8px;
-            background: #f8f9fa;
-            border-radius: 6px;
+            margin-bottom: 10px;
         }
         
-        .component-checkbox input[type="number"] {
-            width: 80px;
-            padding: 5px;
-            border: 2px solid #e5e7eb;
-            border-radius: 4px;
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+        
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 30px;
+        }
+        
+        .modal-actions .btn {
+            flex: 1;
+        }
+        
+        .danger-zone {
+            margin-top: 30px;
+            padding: 15px;
+            background: #fee2e2;
+            border-radius: 8px;
+            border: 2px solid #fecaca;
+        }
+        
+        .danger-zone h3 {
+            color: #991b1b;
+            margin-bottom: 10px;
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 30px;
+            right: 30px;
+            background: #667eea;
+            color: white;
+            padding: 16px 24px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.2);
+            transform: translateY(150px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            z-index: 2000;
+        }
+        
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .controls input[type="file"] {
+            display: none;
+        }
+        
+        .file-label {
+            background: #667eea;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: background 0.2s;
+            display: inline-block;
+        }
+        
+        .file-label:hover {
+            background: #5568d3;
+        }
+        
+        .orders-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
         }
     </style>
 </head>
 <body>
+    <div id="toast" class="toast"></div>
+    
     <div class="container">
         <div class="header">
-            <h1>🛠️ Budget Build Club Inventory Manager</h1>
-            <p>Track orders, inventory, and profits in real-time</p>
-            <div style="margin-top: 15px;">
-                <button id="migrateBtn" class="btn" onclick="migrateDataToFirebase()" style="background: #10b981; display: none;">
-                    🔄 Migrate Data to Firebase (Click Once)
-                </button>
-                <span id="firebaseStatus" style="font-size: 12px; opacity: 0.9;">⚡ Connected to Firebase</span>
-                <span style="font-size: 11px; opacity: 0.7; margin-left: 15px;">v1.0.4</span>
+            <div class="firebase-status-container">
+                <div id="firebaseStatus" class="firebase-status-pill disconnected">
+                    <div class="status-dot"></div>
+                    <span id="firebaseStatusText">Connecting...</span>
+                </div>
             </div>
+            <h1>📦 Budget Build Club Inventory Manager</h1>
+            <p>Track orders, components, and inventory in real-time</p>
         </div>
         
         <div class="stats-grid">
             <div class="stat-card">
-                <h3>Total Orders</h3>
-                <div class="value" id="totalOrders">0</div>
-                <div class="subvalue">Active orders</div>
+                <h3>Active Orders</h3>
+                <div class="value" id="activeOrdersCount">0</div>
             </div>
             <div class="stat-card">
-                <h3>Ready to Ship</h3>
-                <div class="value" id="readyToShip">0</div>
-                <div class="subvalue" id="readyPercentage">0% ready</div>
+                <h3>Paid & Ready</h3>
+                <div class="value" id="readyToShipCount">0</div>
             </div>
             <div class="stat-card">
-                <h3>Paid Orders</h3>
-                <div class="value" id="paidOrders">0</div>
-                <div class="subvalue" id="paidPercentage">0%</div>
+                <h3>Components</h3>
+                <div class="value" id="totalComponents">0</div>
             </div>
             <div class="stat-card">
-                <h3>Revenue Collected</h3>
-                <div class="value" id="revenueCollected" style="color: #10b981;" data-prefix="$">0</div>
-                <div class="subvalue" id="revenueTotal">of $0 total</div>
-            </div>
-            <div class="stat-card">
-                <h3>Total Profit</h3>
-                <div class="value" id="totalProfit" style="color: #10b981;" data-prefix="$">0</div>
-                <div class="subvalue" id="profitMargin">0% margin</div>
-            </div>
-            <div class="stat-card">
-                <h3>Total Costs</h3>
-                <div class="value" id="totalCosts" style="color: #ef4444;" data-prefix="$">0</div>
-                <div class="subvalue">Materials + Shipping</div>
+                <h3>Total Inventory Value</h3>
+                <div class="value" data-prefix="$" id="inventoryValue">0</div>
             </div>
         </div>
         
         <div class="content">
             <div class="section">
-                <h2>📦 Orders</h2>
-                <div style="display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap;">
-                    <button class="btn" onclick="showNewOrderModal()">+ Add New Order</button>
-                    <button class="btn" onclick="document.getElementById('csvFileInput').click()">📥 Import from Shopify CSV</button>
-                    <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="handleCSVImport(event)">
-                    <button class="btn btn-danger" onclick="deleteAllOrders()" style="margin-left: auto;">🗑️ Delete All Orders</button>
+                <h2>📋 Active Orders</h2>
+                <div class="controls">
+                    <button class="btn" onclick="openNewOrderModal()">+ New Order</button>
+                    <label class="file-label">
+                        📥 Import Orders CSV
+                        <input type="file" id="importOrdersCSV" accept=".csv" onchange="importOrdersCSV(event)">
+                    </label>
+                    <button class="btn" onclick="exportOrdersCSV()">📤 Export Orders</button>
                 </div>
-                
-                <div class="progress-bar">
-                    <div class="progress-fill" id="collectionProgress" style="width: 0%">0% Collected</div>
-                </div>
-                
-                <div style="display: flex; gap: 15px; margin-bottom: 25px; padding: 20px; background: #f8f9fa; border-radius: 12px; flex-wrap: wrap; justify-content: center;">
-                    <div id="ordersSummary" style="display: flex; gap: 15px; flex-wrap: wrap;"></div>
-                </div>
-                
+                <div id="ordersSummary" class="orders-summary"></div>
                 <table>
                     <thead>
                         <tr>
-                            <th style="width: 25%;">Customer</th>
-                            <th style="width: 15%;">Order #</th>
-                            <th style="width: 35%;">Products</th>
-                            <th style="width: 25%;">Payment Status</th>
+                            <th>Customer Name</th>
+                            <th>Order #</th>
+                            <th>Products</th>
+                            <th>Status</th>
                         </tr>
                     </thead>
-                    <tbody id="ordersTableBody">
-                    </tbody>
+                    <tbody id="ordersTableBody"></tbody>
                 </table>
             </div>
             
             <div class="section">
-                <h2>📊 Inventory</h2>
-                
-                <h3 style="margin: 20px 0 10px 0; color: #555;">Components</h3>
-                <button class="btn" onclick="showNewComponentModal()" style="margin-bottom: 20px;">+ Add Component</button>
-                <table id="inventoryTable">
+                <h2>📦 Inventory Status</h2>
+                <div class="controls">
+                    <button class="btn" onclick="openNewComponentModal()">+ New Component</button>
+                    <label class="file-label">
+                        📥 Import Inventory CSV
+                        <input type="file" id="importInventoryCSV" accept=".csv" onchange="importInventoryCSV(event)">
+                    </label>
+                    <button class="btn" onclick="exportInventoryCSV()">📤 Export Inventory</button>
+                </div>
+                <table>
                     <thead>
                         <tr>
                             <th>Component</th>
-                            <th>Needed for Orders</th>
+                            <th>Needed</th>
                             <th>On Hand</th>
                             <th>On Order</th>
                             <th>ETA</th>
@@ -436,14 +547,23 @@ Last Updated: 2025-10-24
                     </thead>
                     <tbody id="inventoryBody"></tbody>
                 </table>
-                
-                <h3 style="margin: 40px 0 10px 0; color: #555;">Kits</h3>
-                <button class="btn" onclick="showNewKitModal()" style="margin-bottom: 20px;">+ Add Kit</button>
-                <table id="kitsTable">
+            </div>
+            
+            <div class="section">
+                <h2>🎁 Kits</h2>
+                <div class="controls">
+                    <button class="btn" onclick="openNewKitModal()">+ New Kit</button>
+                    <label class="file-label">
+                        📥 Import Kits CSV
+                        <input type="file" id="importKitsCSV" accept=".csv" onchange="importKitsCSV(event)">
+                    </label>
+                    <button class="btn" onclick="exportKitsCSV()">📤 Export Kits</button>
+                </div>
+                <table>
                     <thead>
                         <tr>
                             <th>Kit Name</th>
-                            <th>Components Required</th>
+                            <th>Components</th>
                             <th>Cost</th>
                             <th>Price</th>
                             <th>Can Make</th>
@@ -454,12 +574,12 @@ Last Updated: 2025-10-24
             </div>
             
             <div class="section">
-                <h2>📮 Shipped Orders</h2>
-                <table id="shippedTable">
+                <h2>✅ Shipped Orders</h2>
+                <table>
                     <thead>
                         <tr>
                             <th>Customer</th>
-                            <th>Order</th>
+                            <th>Items</th>
                             <th>Amount</th>
                             <th>Tracking</th>
                             <th>Actions</th>
@@ -471,202 +591,247 @@ Last Updated: 2025-10-24
         </div>
     </div>
     
+    <!-- New Order Modal -->
     <div id="newOrderModal" class="modal">
         <div class="modal-content">
-            <h3 id="orderModalTitle">Add New Order</h3>
+            <h2 id="orderModalTitle">New Order</h2>
             <div class="form-group">
                 <label>Customer Name</label>
-                <input type="text" id="newOrderName" placeholder="Enter customer name">
+                <input type="text" id="orderName" placeholder="John Doe">
             </div>
             <div class="form-group">
-                <label>Shopify Order Number</label>
-                <input type="text" id="newOrderShopifyNumber" placeholder="Enter Shopify order number">
+                <label>Shopify Order Number (Optional)</label>
+                <input type="text" id="orderShopifyNumber" placeholder="#1001">
             </div>
-            
-            <div id="orderSummaryView" style="display: none;">
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h4 style="margin: 0 0 15px 0; color: #333;">Order Summary</h4>
-                    <div id="orderSummaryContent"></div>
-                    <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #e5e7eb;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <strong>Total:</strong>
-                            <strong id="orderSummaryTotal" style="font-size: 20px; color: #667eea;">$0</strong>
-                        </div>
-                    </div>
-                </div>
-                
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h4 style="margin: 0 0 15px 0; color: #333;">Components Needed</h4>
-                    <div id="orderComponentsNeeded"></div>
-                </div>
-                
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h4 style="margin: 0 0 15px 0; color: #333;">Inventory Status</h4>
-                    <div id="orderInventoryStatus"></div>
-                </div>
-                
-                <div style="background: #fff; padding: 20px; border-radius: 8px; border: 2px solid #e5e7eb; margin-bottom: 20px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <h4 style="margin: 0; color: #333;">Edit Products</h4>
-                        <button class="btn btn-small" onclick="showAddProductToOrder()">+ Add Product</button>
-                    </div>
-                    <div id="orderProductsList"></div>
-                </div>
+            <div id="orderKitsContainer"></div>
+            <div class="checkbox-group">
+                <input type="checkbox" id="orderPaid">
+                <label for="orderPaid">Paid</label>
             </div>
-            
-            <div id="orderKitsContainer" style="display: none;"></div>
-            <div class="form-group">
-                <label>
-                    <input type="checkbox" id="newOrderPaid"> Paid
-                </label>
+            <div class="checkbox-group">
+                <input type="checkbox" id="orderShipped">
+                <label for="orderShipped">Shipped</label>
             </div>
-            <div class="form-actions">
-                <button class="btn" onclick="closeNewOrderModal()">Cancel</button>
-                <button class="btn btn-success" id="orderModalSaveBtn" onclick="addNewOrder()">Add Order</button>
-                <button class="btn btn-danger" id="orderModalDeleteBtn" onclick="deleteCurrentOrder()" style="display: none;">Delete Order</button>
-                <button class="btn btn-success" id="orderModalShipBtn" onclick="showShipOrderModalFromEdit()" style="display: none;">Ship Order</button>
+            <div class="form-group" id="trackingGroup" style="display: none;">
+                <label>Tracking Number</label>
+                <input type="text" id="orderTracking" placeholder="1Z999AA10123456784">
+            </div>
+            <div class="modal-actions">
+                <button class="btn" onclick="saveOrder()">Save Order</button>
+                <button class="btn btn-danger" onclick="closeNewOrderModal()">Cancel</button>
+            </div>
+            <div id="deleteOrderZone" class="danger-zone" style="display: none;">
+                <h3>⚠️ Danger Zone</h3>
+                <button class="btn btn-danger" onclick="deleteCurrentOrder()">Delete Order</button>
             </div>
         </div>
     </div>
     
-    <div id="editComponentModal" class="modal">
+    <!-- New Component Modal -->
+    <div id="newComponentModal" class="modal">
         <div class="modal-content">
-            <h3 id="componentModalTitle">Edit Component</h3>
+            <h2 id="componentModalTitle">New Component</h2>
             <div class="form-group">
                 <label>Component Name</label>
-                <input type="text" id="editComponentName">
+                <input type="text" id="componentName" placeholder="M3 Screw">
             </div>
             <div class="form-group">
                 <label>On Hand</label>
-                <input type="number" id="editComponentOnHand" min="0">
+                <input type="number" id="componentOnHand" value="0">
             </div>
             <div class="form-group">
                 <label>On Order</label>
-                <input type="number" id="editComponentOnOrder" min="0">
+                <input type="number" id="componentOnOrder" value="0">
             </div>
             <div class="form-group">
                 <label>ETA</label>
-                <input type="text" id="editComponentEta" placeholder="e.g., 10/23">
+                <input type="text" id="componentETA" placeholder="2 weeks">
             </div>
-            <div class="form-group">
-                <label>Cost Type</label>
-                <select id="editComponentCostType" onchange="toggleCostFields()">
-                    <option value="piece">Per Piece</option>
-                    <option value="box">Per Box/Pack</option>
-                </select>
+            <div class="modal-actions">
+                <button class="btn" onclick="saveComponent()">Save Component</button>
+                <button class="btn btn-danger" onclick="closeNewComponentModal()">Cancel</button>
             </div>
-            <div class="form-group" id="pieceCostGroup">
-                <label>Cost Per Piece ($)</label>
-                <input type="number" id="editComponentCostPiece" step="0.01" min="0" placeholder="0.00">
-            </div>
-            <div class="form-group" id="boxCostGroup" style="display: none;">
-                <label>Box/Pack Size</label>
-                <input type="number" id="editComponentBoxSize" min="1" placeholder="e.g., 50">
-                <label style="margin-top: 10px;">Cost Per Box/Pack ($)</label>
-                <input type="number" id="editComponentCostBox" step="0.01" min="0" placeholder="0.00">
-            </div>
-            <div class="form-actions">
-                <button class="btn" onclick="closeEditComponentModal()">Cancel</button>
-                <button class="btn btn-success" onclick="saveComponentEdit()">Save</button>
-                <button class="btn btn-danger" id="componentDeleteBtn" onclick="deleteCurrentComponent()" style="display: none;">Delete</button>
+            <div id="deleteComponentZone" class="danger-zone" style="display: none;">
+                <h3>⚠️ Danger Zone</h3>
+                <button class="btn btn-danger" onclick="deleteCurrentComponent()">Delete Component</button>
             </div>
         </div>
     </div>
     
+    <!-- New Kit Modal -->
     <div id="newKitModal" class="modal">
         <div class="modal-content">
-            <h3 id="kitModalTitle">Add New Kit</h3>
+            <h2 id="kitModalTitle">New Kit</h2>
             <div class="form-group">
                 <label>Kit Name</label>
-                <input type="text" id="newKitName" placeholder="Enter kit name">
+                <input type="text" id="kitName" placeholder="Basic Kit">
             </div>
             <div class="form-group">
-                <label>Cost Per Kit ($) - <small>Leave empty to auto-calculate</small></label>
-                <input type="number" id="newKitCost" step="0.01" min="0" placeholder="Auto-calculated">
+                <label>Cost</label>
+                <input type="number" step="0.01" id="kitCost" value="0">
             </div>
             <div class="form-group">
-                <label>Sell Price Per Kit ($)</label>
-                <input type="number" id="newKitPrice" step="0.01" min="0" placeholder="0.00">
+                <label>Price</label>
+                <input type="number" step="0.01" id="kitPrice" value="0">
             </div>
             <div class="form-group">
-                <label>Select Components</label>
-                <div id="kitComponentsList" style="max-height: 300px; overflow-y: auto; border: 2px solid #e5e7eb; border-radius: 8px; padding: 10px;">
-                </div>
+                <label>Components</label>
+                <div id="kitComponentsContainer"></div>
+                <button class="btn btn-small" onclick="addKitComponent()">+ Add Component</button>
             </div>
-            <div class="form-actions">
-                <button class="btn" onclick="closeNewKitModal()">Cancel</button>
-                <button class="btn btn-success" id="kitModalSaveBtn" onclick="addNewKit()">Add Kit</button>
-                <button class="btn btn-danger" id="kitModalDeleteBtn" onclick="deleteCurrentKit()" style="display: none;">Delete Kit</button>
+            <div class="modal-actions">
+                <button class="btn" onclick="saveKit()">Save Kit</button>
+                <button class="btn btn-danger" onclick="closeNewKitModal()">Cancel</button>
+            </div>
+            <div id="deleteKitZone" class="danger-zone" style="display: none;">
+                <h3>⚠️ Danger Zone</h3>
+                <button class="btn btn-danger" onclick="deleteCurrentKit()">Delete Kit</button>
             </div>
         </div>
     </div>
     
-    <div id="shipOrderModal" class="modal">
-        <div class="modal-content">
-            <h3>Ship Order</h3>
-            <p id="shipModalOrderName"></p>
-            <div class="form-group">
-                <label>Tracking Number (Optional)</label>
-                <input type="text" id="shipTrackingNumber" placeholder="Enter tracking number">
-            </div>
-            <div class="form-actions">
-                <button class="btn" onclick="closeShipOrderModal()">Cancel</button>
-                <button class="btn btn-success" onclick="confirmShipOrder()">Mark as Shipped</button>
-            </div>
-        </div>
-    </div>
-    
-    <div id="addProductModal" class="modal">
-        <div class="modal-content">
-            <h3>Add Product to Order</h3>
-            <div class="form-group">
-                <label>Select Product</label>
-                <select id="addProductSelect" size="6" style="width: 100%; padding: 10px; font-size: 14px; border: 2px solid #e5e7eb; border-radius: 6px;">
-                </select>
-            </div>
-            <div class="form-actions">
-                <button class="btn" onclick="closeAddProductModal()">Cancel</button>
-                <button class="btn btn-success" onclick="confirmAddProduct()">Add Product</button>
-            </div>
-        </div>
-    </div>
-    
-    <!-- Firebase SDK -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
-    
-    <script>
-        // App Version
-        const APP_VERSION = '1.0.4';
-        const APP_NAME = 'Budget Build Club Inventory Manager';
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, writeBatch } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
         
-        // Firebase Configuration
         const firebaseConfig = {
-            apiKey: "AIzaSyAOyGTs-fGXuY08pmmCIxLtB_02_gFwMJs",
-            authDomain: "inventory-464e0.firebaseapp.com",
-            projectId: "inventory-464e0",
-            storageBucket: "inventory-464e0.firebasestorage.app",
-            messagingSenderId: "1042168855557",
-            appId: "1:1042168855557:web:1165defaf0bee779e8706c",
-            measurementId: "G-GVMPEE014J"
+            apiKey: "AIzaSyCiQ_BXP5SIBkZJIlWNCKQ5n0Pj8gkPzz8",
+            authDomain: "product-tracking-app-8c663.firebaseapp.com",
+            projectId: "product-tracking-app-8c663",
+            storageBucket: "product-tracking-app-8c663.firebasestorage.app",
+            messagingSenderId: "990878772679",
+            appId: "1:990878772679:web:b4937a2b2f0b47c1a9ad43"
         };
         
-        // Initialize Firebase
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
         
-        // Loading state
-        let isLoading = true;
+        window.db = db;
+        window.collection = collection;
+        window.doc = doc;
+        window.setDoc = setDoc;
+        window.getDoc = getDoc;
+        window.getDocs = getDocs;
+        window.deleteDoc = deleteDoc;
+        window.writeBatch = writeBatch;
+        
+        // Update Firebase status
+        updateFirebaseStatus('connected', 'Connected');
+    </script>
+    
+    <script>
+        let orders = [];
+        let components = {};
+        let kits = {};
+        let nextOrderId = 1;
+        let currentEditOrder = null;
+        let currentEditComponent = null;
+        let currentEditKit = null;
         let dataLoaded = {
             orders: false,
             components: false,
-            kits: false
+            kits: false,
+            nextOrderId: false
         };
         
+        // Firebase Status Updates
+        function updateFirebaseStatus(status, text) {
+            const statusPill = document.getElementById('firebaseStatus');
+            const statusText = document.getElementById('firebaseStatusText');
+            
+            statusPill.className = 'firebase-status-pill ' + status;
+            statusText.textContent = text;
+        }
+        
+        // Auto-sync to Firebase when CSV is imported
+        async function autoSyncToFirebase() {
+            updateFirebaseStatus('syncing', 'Syncing...');
+            try {
+                await saveAllDataToFirebase();
+                updateFirebaseStatus('connected', 'Synced');
+                showToast('Data automatically synced to Firebase');
+                setTimeout(() => {
+                    updateFirebaseStatus('connected', 'Connected');
+                }, 2000);
+            } catch (error) {
+                console.error('Auto-sync error:', error);
+                updateFirebaseStatus('disconnected', 'Sync Failed');
+                showToast('Auto-sync failed: ' + error.message);
+            }
+        }
+        
+        async function saveAllDataToFirebase() {
+            const batch = writeBatch(db);
+            
+            // Save orders
+            for (const order of orders) {
+                const orderRef = doc(db, 'orders', String(order.id));
+                batch.set(orderRef, order);
+            }
+            
+            // Save components
+            for (const [name, comp] of Object.entries(components)) {
+                const compRef = doc(db, 'components', name);
+                batch.set(compRef, comp);
+            }
+            
+            // Save kits
+            for (const [name, kit] of Object.entries(kits)) {
+                const kitRef = doc(db, 'kits', name);
+                batch.set(kitRef, kit);
+            }
+            
+            // Save nextOrderId
+            const nextOrderIdRef = doc(db, 'metadata', 'nextOrderId');
+            batch.set(nextOrderIdRef, { value: nextOrderId });
+            
+            await batch.commit();
+        }
+        
+        async function loadDataFromFirebase() {
+            updateFirebaseStatus('syncing', 'Loading...');
+            console.log('Checking for existing data in Firebase...');
+            
+            try {
+                // Load orders
+                const ordersSnapshot = await getDocs(collection(db, 'orders'));
+                orders = [];
+                ordersSnapshot.forEach(doc => {
+                    orders.push(doc.data());
+                });
+                dataLoaded.orders = true;
+                console.log('Orders loaded:', orders.length);
+                
+                // Load components
+                const componentsSnapshot = await getDocs(collection(db, 'components'));
+                components = {};
+                componentsSnapshot.forEach(doc => {
+                    components[doc.id] = doc.data();
+                });
+                dataLoaded.components = true;
+                console.log('Components loaded:', Object.keys(components).length);
+                
+                // Load kits
+                const kitsSnapshot = await getDocs(collection(db, 'kits'));
+                kits = {};
+                kitsSnapshot.forEach(doc => {
+                    kits[doc.id] = doc.data();
+                });
+                dataLoaded.kits = true;
+                console.log('Kits loaded:', Object.keys(kits).length);
+                
+                checkAllDataLoaded();
+            } catch (error) {
+                console.error('Error loading from Firebase:', error);
+                updateFirebaseStatus('disconnected', 'Load Failed');
+                showToast('Failed to load data from Firebase');
+            }
+        }
+        
         function checkAllDataLoaded() {
-            if (dataLoaded.orders && dataLoaded.components && dataLoaded.kits) {
-                isLoading = false;
+            if (dataLoaded.orders && dataLoaded.components && dataLoaded.kits && dataLoaded.nextOrderId) {
                 console.log('All data loaded from Firebase');
+                updateFirebaseStatus('connected', 'Connected');
                 updateStats();
                 renderOrders();
                 renderInventory();
@@ -675,1438 +840,706 @@ Last Updated: 2025-10-24
             }
         }
         
-        // Firebase Save Functions
+        async function loadNextOrderId() {
+            try {
+                const docRef = doc(db, 'metadata', 'nextOrderId');
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    nextOrderId = docSnap.data().value;
+                } else {
+                    nextOrderId = Math.max(...orders.map(o => o.id), 0) + 1;
+                }
+                dataLoaded.nextOrderId = true;
+                console.log('NextOrderId loaded:', nextOrderId);
+                checkAllDataLoaded();
+            } catch (error) {
+                console.error('Error loading nextOrderId:', error);
+                nextOrderId = 1;
+                dataLoaded.nextOrderId = true;
+                checkAllDataLoaded();
+            }
+        }
+        
         async function saveOrderToFirebase(order) {
             try {
-                await db.collection('orders').doc(order.id.toString()).set(order);
-                console.log('Order saved:', order.id);
+                const orderRef = doc(db, 'orders', String(order.id));
+                await setDoc(orderRef, order);
             } catch (error) {
                 console.error('Error saving order:', error);
-                alert('Failed to save order. Check console for details.');
+                showToast('Failed to save order to Firebase');
             }
         }
         
         async function deleteOrderFromFirebase(orderId) {
             try {
-                await db.collection('orders').doc(orderId.toString()).delete();
-                console.log('Order deleted:', orderId);
+                const orderRef = doc(db, 'orders', String(orderId));
+                await deleteDoc(orderRef);
             } catch (error) {
                 console.error('Error deleting order:', error);
+                showToast('Failed to delete order from Firebase');
             }
         }
         
         async function saveComponentToFirebase(name, component) {
             try {
-                await db.collection('components').doc(name).set(component);
-                console.log('Component saved:', name);
+                const compRef = doc(db, 'components', name);
+                await setDoc(compRef, component);
             } catch (error) {
                 console.error('Error saving component:', error);
-                alert('Failed to save component. Check console for details.');
+                showToast('Failed to save component to Firebase');
             }
         }
         
         async function deleteComponentFromFirebase(name) {
             try {
-                await db.collection('components').doc(name).delete();
-                console.log('Component deleted:', name);
+                const compRef = doc(db, 'components', name);
+                await deleteDoc(compRef);
             } catch (error) {
                 console.error('Error deleting component:', error);
+                showToast('Failed to delete component from Firebase');
             }
         }
         
         async function saveKitToFirebase(name, kit) {
             try {
-                await db.collection('kits').doc(name).set(kit);
-                console.log('Kit saved:', name);
+                const kitRef = doc(db, 'kits', name);
+                await setDoc(kitRef, kit);
             } catch (error) {
                 console.error('Error saving kit:', error);
-                alert('Failed to save kit. Check console for details.');
+                showToast('Failed to save kit to Firebase');
             }
         }
         
         async function deleteKitFromFirebase(name) {
             try {
-                await db.collection('kits').doc(name).delete();
-                console.log('Kit deleted:', name);
+                const kitRef = doc(db, 'kits', name);
+                await deleteDoc(kitRef);
             } catch (error) {
                 console.error('Error deleting kit:', error);
+                showToast('Failed to delete kit from Firebase');
             }
         }
         
-        async function saveNextOrderIdToFirebase() {
+        async function saveNextOrderId() {
             try {
-                await db.collection('settings').doc('nextOrderId').set({ value: nextOrderId });
+                const nextOrderIdRef = doc(db, 'metadata', 'nextOrderId');
+                await setDoc(nextOrderIdRef, { value: nextOrderId });
             } catch (error) {
                 console.error('Error saving nextOrderId:', error);
             }
         }
         
-        // Firebase Load Functions
-        function loadDataFromFirebase() {
-            // Load Orders
-            db.collection('orders').onSnapshot((snapshot) => {
-                orders = [];
-                snapshot.forEach((doc) => {
-                    orders.push(doc.data());
-                });
-                orders.sort((a, b) => a.id - b.id);
-                dataLoaded.orders = true;
-                console.log('Orders loaded:', orders.length);
-                checkAllDataLoaded();
-                if (!isLoading) {
-                    updateStats();
-                    renderOrders();
-                    renderShippedOrders();
-                }
-            });
-            
-            // Load Components
-            db.collection('components').onSnapshot((snapshot) => {
-                components = {};
-                snapshot.forEach((doc) => {
-                    components[doc.id] = doc.data();
-                });
-                dataLoaded.components = true;
-                console.log('Components loaded:', Object.keys(components).length);
-                checkAllDataLoaded();
-                if (!isLoading) {
-                    renderInventory();
-                }
-            });
-            
-            // Load Kits
-            db.collection('kits').onSnapshot((snapshot) => {
-                kits = {};
-                snapshot.forEach((doc) => {
-                    kits[doc.id] = doc.data();
-                });
-                dataLoaded.kits = true;
-                console.log('Kits loaded:', Object.keys(kits).length);
-                checkAllDataLoaded();
-                if (!isLoading) {
-                    renderKits();
-                }
-            });
-            
-            // Load nextOrderId
-            db.collection('settings').doc('nextOrderId').get().then((doc) => {
-                if (doc.exists) {
-                    nextOrderId = doc.data().value;
-                    console.log('NextOrderId loaded:', nextOrderId);
-                }
-            });
-        }
-        
-        // Initial data migration function (run once to populate Firebase)
-        async function migrateDataToFirebase() {
-            if (!confirm('This will upload your current data to Firebase. This should only be done once on first setup. Continue?')) {
-                return;
-            }
-            
-            document.getElementById('migrateBtn').textContent = '⏳ Migrating...';
-            document.getElementById('migrateBtn').disabled = true;
-            
-            console.log('Starting data migration to Firebase...');
-            
-            // Migrate orders
-            for (const order of orders) {
-                await saveOrderToFirebase(order);
-            }
-            
-            // Migrate components
-            for (const [name, component] of Object.entries(components)) {
-                await saveComponentToFirebase(name, component);
-            }
-            
-            // Migrate kits
-            for (const [name, kit] of Object.entries(kits)) {
-                await saveKitToFirebase(name, kit);
-            }
-            
-            // Save nextOrderId
-            await saveNextOrderIdToFirebase();
-            
-            console.log('Data migration complete!');
-            alert('Data has been migrated to Firebase successfully! Refreshing page...');
-            document.getElementById('migrateBtn').style.display = 'none';
-            location.reload();
-        }
-        
-        // Check if Firebase has data, if not show migration button
-        async function checkForExistingData() {
-            console.log('Checking for existing data in Firebase...');
-            
-            try {
-                const ordersSnapshot = await db.collection('orders').limit(1).get();
-                const kitsSnapshot = await db.collection('kits').limit(1).get();
-                
-                console.log('Orders collection empty?', ordersSnapshot.empty);
-                console.log('Kits collection empty?', kitsSnapshot.empty);
-                
-                if (ordersSnapshot.empty || kitsSnapshot.empty) {
-                    console.log('Data missing - showing migrate button');
-                    document.getElementById('migrateBtn').style.display = 'inline-block';
-                    document.getElementById('firebaseStatus').textContent = '⚠️ No data in Firebase - Click migrate button to upload initial data';
-                } else {
-                    console.log('Data exists - hiding migrate button');
-                }
-            } catch (error) {
-                console.error('Error checking for data:', error);
-                // Show button on error
-                document.getElementById('migrateBtn').style.display = 'inline-block';
-                document.getElementById('firebaseStatus').textContent = '⚠️ Error checking data - Click migrate button';
-            }
-        }
-        
-        checkForExistingData();
-        
-        // CSV Import Functions
-        function handleCSVImport(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            
-            const reader = new FileReader();
-            reader.onload = async function(e) {
-                const csv = e.target.result;
-                
-                // Check if kits exist in Firebase, if not, migrate them first
-                const kitsSnapshot = await db.collection('kits').limit(1).get();
-                if (kitsSnapshot.empty) {
-                    console.log('⚠️ Kits not found in Firebase. Auto-migrating kits and components...');
-                    
-                    // Show loading message
-                    const statusSpan = document.getElementById('firebaseStatus');
-                    const originalText = statusSpan.textContent;
-                    statusSpan.textContent = '⏳ Setting up kits and components...';
-                    
-                    await migrateKitsAndComponents();
-                    
-                    // Wait a moment for Firebase to propagate
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                    
-                    statusSpan.textContent = originalText;
-                    console.log('✅ Kits and components migrated successfully');
-                    console.log('Kits now available:', Object.keys(kits));
-                }
-                
-                // Double-check kits are available
-                if (Object.keys(kits).length === 0) {
-                    alert('⚠️ Kits failed to load. Please refresh the page and try again.');
-                    return;
-                }
-                
-                console.log('Starting CSV parse with kits:', Object.keys(kits));
-                parseShopifyCSV(csv);
-            };
-            reader.readAsText(file);
-        }
-        
-        // Migrate only kits and components (not orders)
-        async function migrateKitsAndComponents() {
-            console.log('Starting migration...');
-            console.log('Components to migrate:', Object.keys(components).length);
-            console.log('Kits to migrate:', Object.keys(kits).length);
-            
-            // Migrate components
-            for (const [name, component] of Object.entries(components)) {
-                await saveComponentToFirebase(name, component);
-                console.log('  ✓ Component saved:', name);
-            }
-            
-            // Migrate kits
-            for (const [name, kit] of Object.entries(kits)) {
-                await saveKitToFirebase(name, kit);
-                console.log('  ✓ Kit saved:', name);
-            }
-            
-            console.log('Migration complete!');
-        }
-        
-        // Delete all orders (nuclear option for testing)
-        async function deleteAllOrders() {
-            if (!confirm('⚠️ WARNING: This will DELETE ALL ORDERS permanently!\n\nAre you absolutely sure?')) {
-                return;
-            }
-            
-            if (!confirm('This cannot be undone! Delete all ' + orders.length + ' orders?')) {
-                return;
-            }
-            
-            console.log('🗑️ Deleting all orders...');
-            
-            // Delete from Firebase
-            const batch = db.batch();
-            for (const order of orders) {
-                const docRef = db.collection('orders').doc(order.id.toString());
-                batch.delete(docRef);
-            }
-            
-            await batch.commit();
-            
-            // Clear local array
-            orders = [];
-            
-            console.log('✅ All orders deleted');
-            alert('All orders have been deleted!');
-            
-            updateStats();
-            renderOrders();
-            renderInventory();
-            renderShippedOrders();
-        }
-        
-        function parseShopifyCSV(csv) {
-            const lines = csv.split('\n');
-            if (lines.length < 2) {
-                alert('CSV file appears to be empty');
-                return;
-            }
-            
-            // Parse header
-            const headers = lines[0].split(',').map(h => h.trim());
-            const nameIndex = headers.indexOf('Name');
-            const billingNameIndex = headers.indexOf('Billing Name');
-            const financialStatusIndex = headers.indexOf('Financial Status');
-            const fulfillmentStatusIndex = headers.indexOf('Fulfillment Status');
-            const lineitemNameIndex = headers.indexOf('Lineitem name');
-            const lineitemSkuIndex = headers.indexOf('Lineitem sku');
-            const lineitemQtyIndex = headers.indexOf('Lineitem quantity');
-            
-            if (nameIndex === -1 || billingNameIndex === -1) {
-                alert('CSV format not recognized. Make sure this is a Shopify orders export.');
-                return;
-            }
-            
-            // Group orders by order number
-            const ordersMap = {};
-            
-            for (let i = 1; i < lines.length; i++) {
-                const line = lines[i].trim();
-                if (!line) continue;
-                
-                const values = parseCSVLine(line);
-                const orderNum = values[nameIndex]?.replace('#', '');
-                const customerName = values[billingNameIndex];
-                const financialStatus = values[financialStatusIndex];
-                const fulfillmentStatus = values[fulfillmentStatusIndex];
-                const productName = values[lineitemNameIndex];
-                const sku = values[lineitemSkuIndex];
-                const qty = parseInt(values[lineitemQtyIndex]) || 0;
-                
-                if (!orderNum || !productName) continue;
-                
-                // Initialize order if not exists
-                if (!ordersMap[orderNum]) {
-                    ordersMap[orderNum] = {
-                        shopifyOrderNumber: orderNum,
-                        name: customerName || 'Unknown Customer',
-                        paid: financialStatus === 'paid',
-                        shipped: fulfillmentStatus === 'fulfilled',
-                        tracking: '',
-                        products: {}
-                    };
-                }
-                
-                // Map product to kit
-                const kitName = mapProductToKit(productName, sku);
-                if (kitName) {
-                    ordersMap[orderNum].products[kitName] = (ordersMap[orderNum].products[kitName] || 0) + qty;
-                    console.log(`  Mapped: "${productName}" (SKU: "${sku}") → ${kitName} (qty: ${qty})`);
-                } else {
-                    console.warn(`  ❌ Failed to map: "${productName}" (SKU: "${sku}")`);
-                }
-            }
-            
-            console.log('📋 Parsed orders from CSV:', Object.keys(ordersMap).length);
-            console.log('Orders data:', ordersMap);
-            
-            // Convert to orders and import
-            importOrders(Object.values(ordersMap));
-        }
-        
-        function parseCSVLine(line) {
-            const values = [];
-            let current = '';
-            let inQuotes = false;
-            
-            for (let i = 0; i < line.length; i++) {
-                const char = line[i];
-                
-                if (char === '"') {
-                    inQuotes = !inQuotes;
-                } else if (char === ',' && !inQuotes) {
-                    values.push(current.trim());
-                    current = '';
-                } else {
-                    current += char;
-                }
-            }
-            values.push(current.trim());
-            return values;
-        }
-        
-        function mapProductToKit(productName, sku) {
-            const name = productName.toLowerCase();
-            const skuLower = (sku || '').toLowerCase();
-            
-            // Map based on SKU first (most reliable)
-            if (skuLower === 'ka24de-cop-s13') {
-                return 'S13';
-            } else if (skuLower === 'ka24de-cop-s14') {
-                return 'S14';
-            }
-            
-            // Then try product name matching
-            if (name.includes('ka24de') && name.includes('s13')) {
-                return 'S13';
-            } else if (name.includes('ka24de') && name.includes('s14')) {
-                return 'S14';
-            } else if (name.includes('ka24') && name.includes('s13') && name.includes('distributor')) {
-                return 'Cap';
-            } else if (name.includes('cap cover') || name.includes('distributor cap')) {
-                return 'Cap';
-            } else if (name.includes('1nz') || name.includes('smart coil') || name.includes('1jz/2jz')) {
-                return '1NZ COP Adapter';
-            } else if (name.includes('2jz') && (name.includes('adapter') || name.includes('fffim') || name.includes('2jz-ge'))) {
-                return '2JZ Intake Adapter';
-            }
-            
-            // If we can't map it, log it for debugging
-            console.log('⚠️ Could not map product:', productName, '| SKU:', sku);
-            return null;
-        }
-        
-        async function importOrders(csvOrders) {
-            let imported = 0;
-            let skipped = 0;
-            let updated = 0;
-            
-            console.log('📦 Starting import of', csvOrders.length, 'orders');
-            
-            for (const csvOrder of csvOrders) {
-                console.log('Processing order:', csvOrder.shopifyOrderNumber, 'Products:', csvOrder.products);
-                
-                // Check if order already exists
-                const existing = orders.find(o => o.shopifyOrderNumber === csvOrder.shopifyOrderNumber);
-                
-                if (existing) {
-                    // Update existing order
-                    existing.paid = csvOrder.paid;
-                    existing.shipped = csvOrder.shipped;
-                    existing.name = csvOrder.name; // Update name too
-                    
-                    // Merge products
-                    for (const [kit, qty] of Object.entries(csvOrder.products)) {
-                        const kitKey = kit.toLowerCase();
-                        existing[kitKey] = qty;
-                        console.log('  ✓ Added to existing:', kitKey, '=', qty);
-                    }
-                    await saveOrderToFirebase(existing);
-                    updated++;
-                } else {
-                    // Create new order
-                    const newOrder = {
-                        id: nextOrderId++,
-                        shopifyOrderNumber: csvOrder.shopifyOrderNumber,
-                        name: csvOrder.name,
-                        paid: csvOrder.paid,
-                        shipped: csvOrder.shipped,
-                        tracking: csvOrder.tracking
-                    };
-                    
-                    // Add products
-                    for (const [kit, qty] of Object.entries(csvOrder.products)) {
-                        const kitKey = kit.toLowerCase();
-                        newOrder[kitKey] = qty;
-                        console.log('  ✓ Added to new order:', kitKey, '=', qty);
-                    }
-                    
-                    console.log('Final new order object:', newOrder);
-                    
-                    orders.push(newOrder);
-                    await saveOrderToFirebase(newOrder);
-                    imported++;
-                }
-            }
-            
-            await saveNextOrderIdToFirebase();
-            
-            console.log('✅ Import complete! Imported:', imported, 'Updated:', updated, 'Skipped:', skipped);
-            alert(`Import complete!\n\nImported: ${imported} new orders\nUpdated: ${updated} existing orders\nSkipped: ${skipped} orders`);
-            
-            updateStats();
-            renderOrders();
-            renderInventory();
-            renderShippedOrders();
-        }
-    </script>
-    
-    <script>
-        let orders = [
-            { id: 1, shopifyOrderNumber: "1191", name: "Brett Bailey", s13: 1, cap: 1, paid: true, shipped: false, tracking: "" },
-            { id: 2, shopifyOrderNumber: "1192", name: "Josh Weidman", "2jz intake adapter": 1, paid: true, shipped: false, tracking: "" },
-            { id: 3, shopifyOrderNumber: "1193", name: "John Martin", s13: 1, paid: true, shipped: false, tracking: "" },
-            { id: 4, shopifyOrderNumber: "1194", name: "Daniel Johnson", "2jz intake adapter": 1, paid: true, shipped: false, tracking: "" },
-            { id: 5, shopifyOrderNumber: "", name: "Brendan Millar", s13: 1, cap: 1, paid: true, shipped: false, tracking: "" },
-            { id: 6, shopifyOrderNumber: "1195", name: "Miguel Morrison", s14: 1, cap: 1, paid: true, shipped: false, tracking: "" },
-            { id: 7, shopifyOrderNumber: "1196", name: "Gerardo Gomez", s13: 1, cap: 1, paid: true, shipped: false, tracking: "" },
-            { id: 8, shopifyOrderNumber: "1197", name: "Alex Medina", s13: 1, paid: true, shipped: false, tracking: "" },
-            { id: 9, shopifyOrderNumber: "1198", name: "Ian Perri", s13: 1, s14: 1, paid: true, shipped: false, tracking: "" },
-            { id: 10, shopifyOrderNumber: "1199", name: "Gabriel Esquivias", s13: 1, s14: 1, paid: true, shipped: false, tracking: "" },
-            { id: 11, shopifyOrderNumber: "1200", name: "Erick Dixon", s14: 1, paid: true, shipped: false, tracking: "" },
-            { id: 12, shopifyOrderNumber: "1190", name: "Sebastian Markiewicz", s13: 1, paid: true, shipped: false, tracking: "" },
-            { id: 13, shopifyOrderNumber: "1189", name: "Kyle Hawkins", s13: 1, paid: true, shipped: false, tracking: "" },
-            { id: 14, shopifyOrderNumber: "1201", name: "Daniel Parrish", s13: 1, paid: true, shipped: false, tracking: "" },
-            { id: 15, shopifyOrderNumber: "1204", name: "Nicholas Trevino", "2jz intake adapter": 1, "1nz cop adapter": 1, paid: true, shipped: false, tracking: "" },
-            { id: 16, shopifyOrderNumber: "1202", name: "(nicco) vaughan", s13: 1, paid: true, shipped: false, tracking: "" },
-            { id: 17, shopifyOrderNumber: "1203", name: "Will Gamble", s13: 1, paid: true, shipped: false, tracking: "" },
-            { id: 18, shopifyOrderNumber: "", name: "Jeremy Brown", s13: 2, s14: 1, paid: true, shipped: false, tracking: "" },
-            { id: 19, shopifyOrderNumber: "", name: "Gregory Allan Rhodes", s13: 1, paid: false, shipped: false, tracking: "" },
-            { id: 20, shopifyOrderNumber: "1187", name: "Jesse Whitaker", "2jz intake adapter": 1, paid: true, shipped: false, tracking: "" },
-            { id: 21, shopifyOrderNumber: "1188", name: "Brendan Miller", s13: 1, cap: 1, paid: true, shipped: true, tracking: "1Z71F7580300766384" }
-        ];
-        
-        let nextOrderId = 22;
-        
-        let components = {
-            "4x4x18\" Box": { onHand: 40, onOrder: 0, eta: "", costType: "box", boxSize: 25, costPerBox: 39 },
-            "0.5x0.25x0.3125\" Spacer": { onHand: 98, onOrder: 0, eta: "", costType: "box", boxSize: 50, costPerBox: 24 },
-            "0.5x0.25x1.375\" Spacer": { onHand: 0, onOrder: 0, eta: "", costType: "piece", costPerPiece: 3.94 },
-            "M6x30mm Socket Head Screw": { onHand: 100, onOrder: 0, eta: "", costType: "box", boxSize: 50, costPerBox: 12.46 },
-            "M6x50mm Hex Drive Flat Head": { onHand: 0, onOrder: 0, eta: "", costType: "box", boxSize: 10, costPerBox: 6.26 },
-            "M6 Flat Washer": { onHand: 161, onOrder: 0, eta: "", costType: "box", boxSize: 100, costPerBox: 6.58 },
-            "M6 Split Washer": { onHand: 191, onOrder: 0, eta: "", costType: "box", boxSize: 100, costPerBox: 5.29 },
-            "M6x65mm Hex Drive Flat Head": { onHand: 49, onOrder: 0, eta: "", costType: "box", boxSize: 10, costPerBox: 6.77 },
-            "M8x65mm Hex Drive Flat Head": { onHand: 17, onOrder: 0, eta: "", costType: "box", boxSize: 5, costPerBox: 6.0 },
-            "M8x18mm Hex Drive Flat Head Screw": { onHand: 0, onOrder: 0, eta: "", costType: "box", boxSize: 10, costPerBox: 6.69 },
-            "S13 Bracket": { onHand: 12, onOrder: 0, eta: "", costType: "piece", costPerPiece: 28.52 },
-            "S14 Bracket": { onHand: 6, onOrder: 0, eta: "", costType: "piece", costPerPiece: 32.80 },
-            "1NZ Bracket": { onHand: 0, onOrder: 0, eta: "", costType: "piece", costPerPiece: 28.52 },
-            "2JZ Intake Bracket": { onHand: 0, onOrder: 0, eta: "", costType: "box", boxSize: 5, costPerBox: 259.5 },
-            "Cap Part": { onHand: 99, onOrder: 0, eta: "", costType: "piece", costPerPiece: 5.00 }
-        };
-        
-        let kits = {
-            "S13": {
-                cost: 42.67,
-                price: 80,
-                components: {
-                    "4x4x18\" Box": 1,
-                    "0.5x0.25x0.3125\" Spacer": 4,
-                    "M6x30mm Socket Head Screw": 4,
-                    "M6 Flat Washer": 4,
-                    "M6 Split Washer": 4,
-                    "M6x65mm Hex Drive Flat Head": 3,
-                    "S13 Bracket": 1
-                }
-            },
-            "S14": {
-                cost: 45.87,
-                price: 80,
-                components: {
-                    "4x4x18\" Box": 1,
-                    "0.5x0.25x0.3125\" Spacer": 4,
-                    "M6x30mm Socket Head Screw": 4,
-                    "M6 Flat Washer": 4,
-                    "M6 Split Washer": 4,
-                    "M8x65mm Hex Drive Flat Head": 2,
-                    "S14 Bracket": 1
-                }
-            },
-            "Cap": {
-                cost: 5.00,
-                price: 20,
-                components: {
-                    "Cap Part": 1
-                }
-            },
-            "1NZ COP Adapter": {
-                cost: 31.40,
-                price: 80,
-                components: {
-                    "1NZ Bracket": 1,
-                    "M6x50mm Hex Drive Flat Head": 6,
-                    "M6x30mm Socket Head Screw": 6,
-                    "M6 Flat Washer": 6,
-                    "M6 Split Washer": 6,
-                    "0.5x0.25x1.375\" Spacer": 6,
-                    "0.5x0.25x0.3125\" Spacer": 6
-                }
-            },
-            "2JZ Intake Adapter": {
-                cost: 58.34,
-                price: 60,
-                components: {
-                    "4x4x18\" Box": 1,
-                    "M8x18mm Hex Drive Flat Head Screw": 7,
-                    "2JZ Intake Bracket": 1
-                }
-            }
-        };
-        
-        const totalCosts = 767.01;
-        let currentShipOrderId = null;
-        let currentEditOrderId = null;
-        let currentEditComponent = null;
-        let currentEditKit = null;
-        
-        function calculateKitCost(kitComponents) {
-            let totalCost = 0;
-            for (const [componentName, qty] of Object.entries(kitComponents)) {
-                const comp = components[componentName];
-                if (!comp) continue;
-                
-                if (comp.costType === 'piece') {
-                    totalCost += (comp.costPerPiece || 0) * qty;
-                } else if (comp.costType === 'box') {
-                    const costPerPiece = (comp.costPerBox || 0) / (comp.boxSize || 1);
-                    totalCost += costPerPiece * qty;
-                }
-            }
-            return totalCost;
-        }
-        
-        function canFulfillOrder(order) {
-            for (const [kitName, kit] of Object.entries(kits)) {
-                const qtyNeeded = order[kitName.toLowerCase()] || 0;
-                if (qtyNeeded === 0) continue;
-                
-                for (const [componentName, componentQty] of Object.entries(kit.components)) {
-                    const comp = components[componentName];
-                    if (!comp) return false;
-                    const totalNeeded = componentQty * qtyNeeded;
-                    if (comp.onHand < totalNeeded) return false;
-                }
-            }
-            return true;
-        }
-        
-        function calculateStats() {
-            const activeOrders = orders.filter(o => !o.shipped);
-            const paidOrders = activeOrders.filter(o => o.paid);
-            
-            let totalRevenue = 0;
-            let revenueCollected = 0;
-            
-            activeOrders.forEach(order => {
-                for (const [kitName, kit] of Object.entries(kits)) {
-                    const qty = order[kitName.toLowerCase()] || 0;
-                    totalRevenue += qty * (kit.price || 0);
-                }
-            });
-            
-            paidOrders.forEach(order => {
-                for (const [kitName, kit] of Object.entries(kits)) {
-                    const qty = order[kitName.toLowerCase()] || 0;
-                    revenueCollected += qty * (kit.price || 0);
-                }
-            });
-            
-            const costPerCustomer = totalCosts / Math.max(orders.length, 1);
-            const currentCosts = costPerCustomer * paidOrders.length;
-            const profit = revenueCollected - currentCosts;
-            const margin = revenueCollected > 0 ? (profit / revenueCollected) * 100 : 0;
-            
-            return { 
-                totalOrders: activeOrders.length, 
-                paidOrders: paidOrders.length, 
-                totalRevenue, 
-                revenueCollected, 
-                profit, 
-                margin, 
-                currentCosts 
-            };
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
         }
         
         function updateStats() {
-            const stats = calculateStats();
             const activeOrders = orders.filter(o => !o.shipped);
-            const paidOrders = activeOrders.filter(o => o.paid);
+            const readyToShip = activeOrders.filter(o => o.paid && canFulfillOrder(o));
             
-            let readyToShipCount = 0;
-            paidOrders.forEach(order => {
-                if (canFulfillOrder(order)) {
-                    readyToShipCount++;
-                }
-            });
+            let inventoryValue = 0;
+            for (const comp of Object.values(components)) {
+                inventoryValue += comp.onHand * 0.10;
+            }
             
-            document.getElementById('totalOrders').textContent = stats.totalOrders;
-            document.getElementById('readyToShip').textContent = readyToShipCount;
-            const readyPct = paidOrders.length > 0 ? ((readyToShipCount / paidOrders.length) * 100).toFixed(1) : 0;
-            document.getElementById('readyPercentage').textContent = `${readyPct}% ready`;
-            document.getElementById('paidOrders').textContent = stats.paidOrders;
-            const paidPct = stats.totalOrders > 0 ? ((stats.paidOrders / stats.totalOrders) * 100).toFixed(1) : 0;
-            document.getElementById('paidPercentage').textContent = `${paidPct}%`;
-            document.getElementById('revenueCollected').textContent = `${stats.revenueCollected.toFixed(0)}`;
-            document.getElementById('revenueTotal').textContent = `of ${stats.totalRevenue.toFixed(0)} total`;
-            document.getElementById('totalProfit').textContent = `${stats.profit.toFixed(2)}`;
-            document.getElementById('profitMargin').textContent = `${stats.margin.toFixed(1)}% margin`;
-            document.getElementById('totalCosts').textContent = `${stats.currentCosts.toFixed(2)}`;
-            const collectionPct = stats.totalRevenue > 0 ? (stats.revenueCollected / stats.totalRevenue) * 100 : 0;
-            document.getElementById('collectionProgress').style.width = collectionPct + '%';
-            document.getElementById('collectionProgress').textContent = `${collectionPct.toFixed(1)}% Collected`;
+            document.getElementById('activeOrdersCount').textContent = activeOrders.length;
+            document.getElementById('readyToShipCount').textContent = readyToShip.length;
+            document.getElementById('totalComponents').textContent = Object.keys(components).length;
+            document.getElementById('inventoryValue').textContent = inventoryValue.toFixed(0);
         }
         
         function canFulfillOrder(order) {
             for (const [kitName, kit] of Object.entries(kits)) {
                 const qtyNeeded = order[kitName.toLowerCase()] || 0;
-                if (qtyNeeded === 0) continue;
-                
-                for (const [componentName, componentQty] of Object.entries(kit.components)) {
-                    const comp = components[componentName];
-                    if (!comp) return false;
-                    const totalNeeded = componentQty * qtyNeeded;
-                    if (comp.onHand < totalNeeded) return false;
+                if (qtyNeeded > 0) {
+                    for (const [componentName, componentQty] of Object.entries(kit.components)) {
+                        const comp = components[componentName];
+                        if (!comp || comp.onHand < qtyNeeded * componentQty) {
+                            return false;
+                        }
+                    }
                 }
             }
             return true;
         }
         
-        function updateOrderTableHeaders() {
-            // No longer needed - using fixed columns
-        }
-        
-        function renderOrderKitsInputs(orderData = {}) {
+        function openNewOrderModal() {
+            currentEditOrder = null;
+            document.getElementById('orderModalTitle').textContent = 'New Order';
+            document.getElementById('orderName').value = '';
+            document.getElementById('orderShopifyNumber').value = '';
+            document.getElementById('orderPaid').checked = false;
+            document.getElementById('orderShipped').checked = false;
+            document.getElementById('orderTracking').value = '';
+            document.getElementById('trackingGroup').style.display = 'none';
+            document.getElementById('deleteOrderZone').style.display = 'none';
+            
             const container = document.getElementById('orderKitsContainer');
             container.innerHTML = '';
             
-            for (const [kitName] of Object.entries(kits)) {
-                const qty = orderData[kitName.toLowerCase()] || 0;
-                const formGroup = document.createElement('div');
-                formGroup.className = 'form-group';
-                formGroup.innerHTML = `
-                    <label>${kitName} Quantity</label>
-                    <input type="number" id="orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}" value="${qty}" min="0" onchange="updateOrderSummary()">
+            for (const kitName of Object.keys(kits)) {
+                const div = document.createElement('div');
+                div.className = 'form-group';
+                div.innerHTML = `
+                    <label>${kitName}</label>
+                    <input type="number" id="order${kitName}" value="0" min="0">
                 `;
-                container.appendChild(formGroup);
+                container.appendChild(div);
             }
-        }
-        
-        function renderOrderProductsList() {
-            const container = document.getElementById('orderProductsList');
-            if (!container) return;
-            
-            container.innerHTML = '';
-            
-            let hasProducts = false;
-            for (const [kitName] of Object.entries(kits)) {
-                const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
-                if (!input) continue;
-                
-                const qty = parseInt(input.value) || 0;
-                
-                if (qty > 0) {
-                    hasProducts = true;
-                    const productRow = document.createElement('div');
-                    productRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8f9fa; border-radius: 6px; margin-bottom: 8px;';
-                    productRow.innerHTML = `
-                        <div style="flex: 1;">
-                            <strong>${kitName}</strong>
-                            <div style="font-size: 12px; color: #666; margin-top: 4px;">
-                                <input type="number" value="${qty}" min="1" style="width: 60px; padding: 4px; border: 2px solid #e5e7eb; border-radius: 4px;" onchange="updateProductQuantity('${kitName}', this.value)"> units
-                            </div>
-                        </div>
-                        <button class="btn btn-small btn-danger" onclick="removeProductFromOrder('${kitName}')">Remove</button>
-                    `;
-                    container.appendChild(productRow);
-                }
-            }
-            
-            if (!hasProducts) {
-                container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">No products in this order. Click "+ Add Product" to add one.</div>';
-            }
-        }
-        
-        function showAddProductToOrder() {
-            // Get products not in order
-            const availableProducts = [];
-            for (const [kitName] of Object.entries(kits)) {
-                const inputId = `orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`;
-                const input = document.getElementById(inputId);
-                const qty = parseInt(input?.value) || 0;
-                if (qty === 0) {
-                    availableProducts.push(kitName);
-                }
-            }
-            
-            if (availableProducts.length === 0) {
-                alert('All products are already in this order!');
-                return;
-            }
-            
-            // Populate the select dropdown
-            const select = document.getElementById('addProductSelect');
-            select.innerHTML = '';
-            availableProducts.forEach(product => {
-                const option = document.createElement('option');
-                option.value = product;
-                option.textContent = product;
-                select.appendChild(option);
-            });
-            
-            // Show the modal
-            document.getElementById('addProductModal').classList.add('active');
-        }
-        
-        function closeAddProductModal() {
-            document.getElementById('addProductModal').classList.remove('active');
-        }
-        
-        function confirmAddProduct() {
-            const select = document.getElementById('addProductSelect');
-            const kitName = select.value;
-            
-            if (!kitName) {
-                alert('Please select a product');
-                return;
-            }
-            
-            const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
-            if (input) {
-                input.value = '1';
-                updateOrderSummary();
-                renderOrderProductsList();
-            }
-            
-            closeAddProductModal();
-        }
-        
-        function updateProductQuantity(kitName, newQty) {
-            const qty = parseInt(newQty) || 0;
-            const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
-            if (input) {
-                input.value = qty;
-                updateOrderSummary();
-                
-                // If quantity is 0, remove the product
-                if (qty === 0) {
-                    renderOrderProductsList();
-                }
-            }
-        }
-        
-        function removeProductFromOrder(kitName) {
-            const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
-            if (input) {
-                input.value = '0';
-                updateOrderSummary();
-                renderOrderProductsList();
-            }
-        }
-        
-        function updateOrderSummary() {
-            // Calculate what's in the order
-            let totalAmount = 0;
-            const selectedKits = [];
-            const componentsNeeded = {};
-            
-            for (const [kitName, kit] of Object.entries(kits)) {
-                const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
-                const qty = parseInt(input?.value) || 0;
-                
-                if (qty > 0) {
-                    totalAmount += qty * (kit.price || 0);
-                    selectedKits.push({ name: kitName, qty, price: kit.price });
-                    
-                    // Calculate components needed
-                    for (const [componentName, componentQty] of Object.entries(kit.components)) {
-                        componentsNeeded[componentName] = (componentsNeeded[componentName] || 0) + (componentQty * qty);
-                    }
-                }
-            }
-            
-            // Update summary content
-            const summaryContent = document.getElementById('orderSummaryContent');
-            if (!summaryContent) return;
-            
-            if (selectedKits.length === 0) {
-                summaryContent.innerHTML = '<div style="color: #999;">No products selected</div>';
-            } else {
-                summaryContent.innerHTML = selectedKits.map(kit => `
-                    <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
-                        <span>${kit.qty}× ${kit.name}</span>
-                        <span style="color: #667eea; font-weight: 600;">$${(kit.qty * kit.price).toFixed(2)}</span>
-                    </div>
-                `).join('');
-            }
-            
-            const totalElement = document.getElementById('orderSummaryTotal');
-            if (totalElement) {
-                totalElement.textContent = `$${totalAmount.toFixed(2)}`;
-            }
-            
-            // Update components needed
-            const componentsDiv = document.getElementById('orderComponentsNeeded');
-            if (componentsDiv) {
-                if (Object.keys(componentsNeeded).length === 0) {
-                    componentsDiv.innerHTML = '<div style="color: #999;">No components needed</div>';
-                } else {
-                    componentsDiv.innerHTML = Object.entries(componentsNeeded).map(([name, qty]) => `
-                        <div style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">
-                            <span style="font-weight: 600;">${qty}×</span> ${name}
-                        </div>
-                    `).join('');
-                }
-            }
-            
-            // Update inventory status
-            const statusDiv = document.getElementById('orderInventoryStatus');
-            if (statusDiv) {
-                if (Object.keys(componentsNeeded).length === 0) {
-                    statusDiv.innerHTML = '<div style="color: #999;">-</div>';
-                } else {
-                    let allAvailable = true;
-                    const statusHTML = Object.entries(componentsNeeded).map(([name, needed]) => {
-                        const comp = components[name];
-                        if (!comp) {
-                            allAvailable = false;
-                            return `<div style="padding: 6px 0; color: #ef4444;">❌ ${name} - Component not found</div>`;
-                        }
-                        
-                        const available = comp.onHand >= needed;
-                        if (!available) allAvailable = false;
-                        
-                        return `
-                            <div style="padding: 6px 0; display: flex; justify-content: space-between;">
-                                <span>${name}</span>
-                                <span style="color: ${available ? '#10b981' : '#ef4444'}; font-weight: 600;">
-                                    ${available ? '✓' : '✗'} ${comp.onHand} / ${needed} available
-                                </span>
-                            </div>
-                        `;
-                    }).join('');
-                    
-                    statusDiv.innerHTML = statusHTML;
-                    
-                    // Update overall status message
-                    if (allAvailable && Object.keys(componentsNeeded).length > 0) {
-                        statusDiv.innerHTML += '<div style="margin-top: 10px; padding: 10px; background: #d1fae5; color: #065f46; border-radius: 6px; font-weight: 600; text-align: center;">✓ All components available - Ready to build!</div>';
-                    } else if (Object.keys(componentsNeeded).length > 0) {
-                        statusDiv.innerHTML += '<div style="margin-top: 10px; padding: 10px; background: #fee2e2; color: #991b1b; border-radius: 6px; font-weight: 600; text-align: center;">⚠ Missing components - Cannot fulfill yet</div>';
-                    }
-                }
-            }
-        }
-        
-        function showNewOrderModal() {
-            currentEditOrderId = null;
-            document.getElementById('orderModalTitle').textContent = 'Add New Order';
-            document.getElementById('orderModalSaveBtn').textContent = 'Add Order';
-            document.getElementById('orderModalSaveBtn').onclick = addNewOrder;
-            document.getElementById('orderModalDeleteBtn').style.display = 'none';
-            document.getElementById('orderModalShipBtn').style.display = 'none';
-            document.getElementById('newOrderName').value = '';
-            document.getElementById('newOrderShopifyNumber').value = '';
-            document.getElementById('newOrderPaid').checked = false;
-            
-            // Hide summary view and show add product interface
-            const summaryView = document.getElementById('orderSummaryView');
-            if (summaryView) summaryView.style.display = 'block';
-            
-            const kitsContainer = document.getElementById('orderKitsContainer');
-            if (kitsContainer) kitsContainer.style.display = 'none';
-            
-            // Initialize all kits to 0
-            renderOrderKitsInputs({});
-            updateOrderSummary();
-            renderOrderProductsList();
             
             document.getElementById('newOrderModal').classList.add('active');
         }
         
-        function addNewOrder() {
-            const name = document.getElementById('newOrderName').value.trim();
-            const shopifyOrderNumber = document.getElementById('newOrderShopifyNumber').value.trim();
-            const paid = document.getElementById('newOrderPaid').checked;
-            
-            if (!name) { 
-                alert('Please enter a customer name'); 
-                return; 
-            }
-            
-            const newOrder = { 
-                id: nextOrderId++, 
-                shopifyOrderNumber,
-                name, 
-                paid, 
-                shipped: false, 
-                tracking: "" 
-            };
-            
-            let hasAnyQuantity = false;
-            for (const kitName of Object.keys(kits)) {
-                const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
-                const qty = parseInt(input?.value) || 0;
-                newOrder[kitName.toLowerCase()] = qty;
-                if (qty > 0) hasAnyQuantity = true;
-            }
-            
-            if (!hasAnyQuantity) { 
-                alert('Please select at least one product'); 
-                return; 
-            }
-            
-            orders.push(newOrder);
-            saveOrderToFirebase(newOrder);
-            saveNextOrderIdToFirebase();
-            closeNewOrderModal();
-            updateStats(); 
-            renderOrders(); 
-            renderInventory(); 
-            renderShippedOrders();
-        }
-        
         function closeNewOrderModal() {
             document.getElementById('newOrderModal').classList.remove('active');
-            document.getElementById('newOrderName').value = '';
-            document.getElementById('newOrderShopifyNumber').value = '';
-            document.getElementById('newOrderPaid').checked = false;
-            currentEditOrderId = null;
         }
         
-        function closeNewKitModal() {
-            document.getElementById('newKitModal').classList.remove('active');
-            document.getElementById('newKitName').disabled = false;
-            currentEditKit = null;
-        }
+        document.getElementById('orderShipped').addEventListener('change', function() {
+            document.getElementById('trackingGroup').style.display = this.checked ? 'block' : 'none';
+        });
         
-        function closeEditComponentModal() {
-            document.getElementById('editComponentModal').classList.remove('active');
-            currentEditComponent = null;
-        }
-        
-        function saveComponentEdit() {
-            const name = document.getElementById('editComponentName').value.trim();
-            const onHand = parseInt(document.getElementById('editComponentOnHand').value) || 0;
-            const onOrder = parseInt(document.getElementById('editComponentOnOrder').value) || 0;
-            const eta = document.getElementById('editComponentEta').value.trim();
-            const costType = document.getElementById('editComponentCostType').value;
+        function saveOrder() {
+            const name = document.getElementById('orderName').value.trim();
+            const shopifyNumber = document.getElementById('orderShopifyNumber').value.trim();
+            const paid = document.getElementById('orderPaid').checked;
+            const shipped = document.getElementById('orderShipped').checked;
+            const tracking = document.getElementById('orderTracking').value.trim();
             
             if (!name) {
-                alert('Please enter a component name');
+                alert('Please enter a customer name');
                 return;
             }
             
-            let costData = { costType };
-            if (costType === 'piece') {
-                const costPerPiece = parseFloat(document.getElementById('editComponentCostPiece').value) || 0;
-                costData.costPerPiece = costPerPiece;
-            } else {
-                const boxSize = parseInt(document.getElementById('editComponentBoxSize').value) || 0;
-                const costPerBox = parseFloat(document.getElementById('editComponentCostBox').value) || 0;
-                if (boxSize <= 0) {
-                    alert('Please enter a valid box/pack size');
-                    return;
-                }
-                costData.boxSize = boxSize;
-                costData.costPerBox = costPerBox;
+            const order = currentEditOrder 
+                ? orders.find(o => o.id === currentEditOrder)
+                : { id: nextOrderId++ };
+            
+            order.name = name;
+            order.shopifyOrderNumber = shopifyNumber;
+            order.paid = paid;
+            order.shipped = shipped;
+            order.tracking = tracking;
+            
+            for (const kitName of Object.keys(kits)) {
+                const qty = parseInt(document.getElementById(`order${kitName}`).value) || 0;
+                order[kitName.toLowerCase()] = qty;
             }
             
-            if (currentEditComponent && currentEditComponent !== name) {
-                alert('Cannot rename components. Please delete and create a new one.');
-                return;
+            if (!currentEditOrder) {
+                orders.push(order);
+                saveNextOrderId();
             }
             
-            if (!currentEditComponent) {
-                components[name] = {
-                    onHand,
-                    onOrder,
-                    eta,
-                    ...costData
-                };
-            } else {
-                const comp = components[currentEditComponent];
-                comp.onHand = onHand;
-                comp.onOrder = onOrder;
-                comp.eta = eta;
-                Object.assign(comp, costData);
-            }
+            saveOrderToFirebase(order);
             
-            saveComponentToFirebase(name, components[name]);
-            closeEditComponentModal();
-            renderInventory();
+            closeNewOrderModal();
+            updateStats();
             renderOrders();
+            renderInventory();
+            renderShippedOrders();
+            showToast(currentEditOrder ? 'Order updated' : 'Order created');
         }
         
         function editOrder(orderId) {
             const order = orders.find(o => o.id === orderId);
             if (!order) return;
             
-            currentEditOrderId = orderId;
-            document.getElementById('orderModalTitle').textContent = 'Edit Order - ' + order.name;
-            document.getElementById('newOrderName').value = order.name;
-            document.getElementById('newOrderShopifyNumber').value = order.shopifyOrderNumber || '';
+            currentEditOrder = orderId;
+            document.getElementById('orderModalTitle').textContent = 'Edit Order';
+            document.getElementById('orderName').value = order.name;
+            document.getElementById('orderShopifyNumber').value = order.shopifyOrderNumber || '';
+            document.getElementById('orderPaid').checked = order.paid;
+            document.getElementById('orderShipped').checked = order.shipped;
+            document.getElementById('orderTracking').value = order.tracking || '';
+            document.getElementById('trackingGroup').style.display = order.shipped ? 'block' : 'none';
+            document.getElementById('deleteOrderZone').style.display = 'block';
             
-            const orderData = {};
+            const container = document.getElementById('orderKitsContainer');
+            container.innerHTML = '';
+            
             for (const kitName of Object.keys(kits)) {
-                orderData[kitName.toLowerCase()] = order[kitName.toLowerCase()] || 0;
-            }
-            
-            // Hide the traditional input container
-            document.getElementById('orderKitsContainer').style.display = 'none';
-            
-            renderOrderKitsInputs(orderData);
-            
-            document.getElementById('newOrderPaid').checked = order.paid;
-            
-            // Show summary view for editing
-            document.getElementById('orderSummaryView').style.display = 'block';
-            updateOrderSummary();
-            renderOrderProductsList();
-            
-            document.getElementById('orderModalSaveBtn').textContent = 'Save Changes';
-            document.getElementById('orderModalSaveBtn').onclick = saveOrderEdit;
-            document.getElementById('orderModalDeleteBtn').style.display = 'inline-block';
-            
-            const ready = canFulfillOrder(order);
-            if (order.paid && ready) {
-                document.getElementById('orderModalShipBtn').style.display = 'inline-block';
-            } else {
-                document.getElementById('orderModalShipBtn').style.display = 'none';
+                const div = document.createElement('div');
+                div.className = 'form-group';
+                div.innerHTML = `
+                    <label>${kitName}</label>
+                    <input type="number" id="order${kitName}" value="${order[kitName.toLowerCase()] || 0}" min="0">
+                `;
+                container.appendChild(div);
             }
             
             document.getElementById('newOrderModal').classList.add('active');
         }
         
-        function saveOrderEdit() {
-            if (!currentEditOrderId) return;
-            
-            const order = orders.find(o => o.id === currentEditOrderId);
-            if (!order) return;
-            
-            order.name = document.getElementById('newOrderName').value.trim();
-            order.shopifyOrderNumber = document.getElementById('newOrderShopifyNumber').value.trim();
-            order.paid = document.getElementById('newOrderPaid').checked;
-            
-            for (const kitName of Object.keys(kits)) {
-                const input = document.getElementById('orderKit_' + kitName.replace(/[^a-zA-Z0-9]/g, '_'));
-                order[kitName.toLowerCase()] = parseInt(input.value) || 0;
-            }
-            
-            saveOrderToFirebase(order);
-            closeNewOrderModal();
-            updateStats();
-            renderOrders();
-            renderInventory();
-        }
-        
         function deleteCurrentOrder() {
-            if (!currentEditOrderId) return;
+            if (!currentEditOrder) return;
             if (!confirm('Are you sure you want to delete this order?')) return;
             
-            const index = orders.findIndex(o => o.id === currentEditOrderId);
-            if (index > -1) {
-                deleteOrderFromFirebase(currentEditOrderId);
-                orders.splice(index, 1);
-            }
+            deleteOrderFromFirebase(currentEditOrder);
+            orders = orders.filter(o => o.id !== currentEditOrder);
             
             closeNewOrderModal();
-            updateStats();
-            renderOrders();
-            renderInventory();
-        }
-        
-        function shipCurrentOrder() {
-            if (!currentEditOrderId) return;
-            
-            currentShipOrderId = currentEditOrderId;
-            closeNewOrderModal();
-            
-            const order = orders.find(o => o.id === currentShipOrderId);
-            if (!order) return;
-            
-            document.getElementById('shipModalOrderName').textContent = order.name;
-            document.getElementById('shipTrackingNumber').value = order.tracking || '';
-            document.getElementById('shipOrderModal').classList.add('active');
-        }
-        
-        function showShipOrderModalFromEdit() {
-            shipCurrentOrder();
-        }
-        
-        function closeShipOrderModal() {
-            document.getElementById('shipOrderModal').classList.remove('active');
-            document.getElementById('shipTrackingNumber').value = '';
-            currentShipOrderId = null;
-        }
-        
-        function confirmShipOrder() {
-            if (!currentShipOrderId) return;
-            
-            const order = orders.find(o => o.id === currentShipOrderId);
-            if (!order) return;
-            
-            const tracking = document.getElementById('shipTrackingNumber').value.trim();
-            
-            order.shipped = true;
-            order.tracking = tracking;
-            
-            // Deduct inventory
-            for (const [kitName, kit] of Object.entries(kits)) {
-                const qtyNeeded = order[kitName.toLowerCase()] || 0;
-                if (qtyNeeded === 0) continue;
-                
-                for (const [componentName, componentQty] of Object.entries(kit.components)) {
-                    const comp = components[componentName];
-                    if (comp) {
-                        const totalNeeded = componentQty * qtyNeeded;
-                        comp.onHand -= totalNeeded;
-                        saveComponentToFirebase(componentName, comp);
-                    }
-                }
-            }
-            
-            saveOrderToFirebase(order);
-            closeShipOrderModal();
             updateStats();
             renderOrders();
             renderInventory();
             renderShippedOrders();
+            showToast('Order deleted');
         }
         
         function unshipOrder(orderId) {
-            if (!confirm('Are you sure you want to unship this order?')) return;
-            
             const order = orders.find(o => o.id === orderId);
             if (!order) return;
-            
-            // Return inventory
-            for (const [kitName, kit] of Object.entries(kits)) {
-                const qtyNeeded = order[kitName.toLowerCase()] || 0;
-                if (qtyNeeded === 0) continue;
-                
-                for (const [componentName, componentQty] of Object.entries(kit.components)) {
-                    const comp = components[componentName];
-                    if (comp) {
-                        const totalNeeded = componentQty * qtyNeeded;
-                        comp.onHand += totalNeeded;
-                        saveComponentToFirebase(componentName, comp);
-                    }
-                }
-            }
             
             order.shipped = false;
             order.tracking = '';
             
             saveOrderToFirebase(order);
+            
             updateStats();
             renderOrders();
-            renderInventory();
             renderShippedOrders();
+            showToast('Order unshipped');
         }
         
-        function editComponent(componentName) {
-            currentEditComponent = componentName;
-            const comp = components[componentName];
-            
-            document.getElementById('componentModalTitle').textContent = `Edit ${componentName}`;
-            document.getElementById('editComponentName').value = componentName;
-            document.getElementById('editComponentName').disabled = true;
-            document.getElementById('editComponentOnHand').value = comp.onHand;
-            document.getElementById('editComponentOnOrder').value = comp.onOrder;
-            document.getElementById('editComponentEta').value = comp.eta;
-            
-            document.getElementById('editComponentCostType').value = comp.costType || 'piece';
-            if (comp.costType === 'box') {
-                document.getElementById('editComponentBoxSize').value = comp.boxSize || '';
-                document.getElementById('editComponentCostBox').value = comp.costPerBox || '';
-                document.getElementById('editComponentCostPiece').value = '';
-            } else {
-                document.getElementById('editComponentCostPiece').value = comp.costPerPiece || '';
-                document.getElementById('editComponentBoxSize').value = '';
-                document.getElementById('editComponentCostBox').value = '';
-            }
-            toggleCostFields();
-            
-            document.getElementById('componentDeleteBtn').style.display = 'inline-block';
-            document.getElementById('editComponentModal').classList.add('active');
-        }
-        
-        function showNewComponentModal() {
+        function openNewComponentModal() {
             currentEditComponent = null;
-            document.getElementById('componentModalTitle').textContent = 'Add New Component';
-            document.getElementById('editComponentName').value = '';
-            document.getElementById('editComponentName').disabled = false;
-            document.getElementById('editComponentOnHand').value = '0';
-            document.getElementById('editComponentOnOrder').value = '0';
-            document.getElementById('editComponentEta').value = '';
-            document.getElementById('editComponentCostType').value = 'piece';
-            document.getElementById('editComponentCostPiece').value = '';
-            document.getElementById('editComponentBoxSize').value = '';
-            document.getElementById('editComponentCostBox').value = '';
-            toggleCostFields();
-            document.getElementById('componentDeleteBtn').style.display = 'none';
-            document.getElementById('editComponentModal').classList.add('active');
+            document.getElementById('componentModalTitle').textContent = 'New Component';
+            document.getElementById('componentName').value = '';
+            document.getElementById('componentName').disabled = false;
+            document.getElementById('componentOnHand').value = '0';
+            document.getElementById('componentOnOrder').value = '0';
+            document.getElementById('componentETA').value = '';
+            document.getElementById('deleteComponentZone').style.display = 'none';
+            document.getElementById('newComponentModal').classList.add('active');
         }
         
-        function toggleCostFields() {
-            const costType = document.getElementById('editComponentCostType').value;
-            const pieceCostGroup = document.getElementById('pieceCostGroup');
-            const boxCostGroup = document.getElementById('boxCostGroup');
-            
-            if (costType === 'box') {
-                pieceCostGroup.style.display = 'none';
-                boxCostGroup.style.display = 'block';
-            } else {
-                pieceCostGroup.style.display = 'block';
-                boxCostGroup.style.display = 'none';
-            }
+        function closeNewComponentModal() {
+            document.getElementById('newComponentModal').classList.remove('active');
         }
         
         function saveComponent() {
-            const name = document.getElementById('editComponentName').value.trim();
+            const name = document.getElementById('componentName').value.trim();
+            const onHand = parseInt(document.getElementById('componentOnHand').value) || 0;
+            const onOrder = parseInt(document.getElementById('componentOnOrder').value) || 0;
+            const eta = document.getElementById('componentETA').value.trim();
+            
             if (!name) {
                 alert('Please enter a component name');
                 return;
             }
             
-            const onHand = parseInt(document.getElementById('editComponentOnHand').value) || 0;
-            const onOrder = parseInt(document.getElementById('editComponentOnOrder').value) || 0;
-            const eta = document.getElementById('editComponentEta').value;
-            const costType = document.getElementById('editComponentCostType').value;
-            
-            let costPerPiece = 0;
-            let costPerBox = 0;
-            let boxSize = 0;
-            
-            if (costType === 'box') {
-                boxSize = parseInt(document.getElementById('editComponentBoxSize').value) || 0;
-                costPerBox = parseFloat(document.getElementById('editComponentCostBox').value) || 0;
-                if (boxSize > 0) {
-                    costPerPiece = costPerBox / boxSize;
-                }
-            } else {
-                costPerPiece = parseFloat(document.getElementById('editComponentCostPiece').value) || 0;
-            }
-            
-            if (currentEditComponent && currentEditComponent !== name) {
-                alert('Cannot rename components. Please delete and create a new one.');
+            if (!currentEditComponent && components[name]) {
+                alert('A component with this name already exists');
                 return;
             }
             
-            components[name] = {
-                onHand,
-                onOrder,
-                eta,
-                costType,
-                costPerPiece,
-                costPerBox,
-                boxSize
-            };
+            if (currentEditComponent && currentEditComponent !== name) {
+                delete components[currentEditComponent];
+                deleteComponentFromFirebase(currentEditComponent);
+            }
             
-            closeComponentModal();
+            components[name] = { onHand, onOrder, eta };
+            saveComponentToFirebase(name, components[name]);
+            
+            closeNewComponentModal();
+            updateStats();
             renderInventory();
             renderKits();
-            updateStats();
+            showToast(currentEditComponent ? 'Component updated' : 'Component created');
+        }
+        
+        function editComponent(name) {
+            const comp = components[name];
+            if (!comp) return;
+            
+            currentEditComponent = name;
+            document.getElementById('componentModalTitle').textContent = 'Edit Component';
+            document.getElementById('componentName').value = name;
+            document.getElementById('componentName').disabled = true;
+            document.getElementById('componentOnHand').value = comp.onHand;
+            document.getElementById('componentOnOrder').value = comp.onOrder;
+            document.getElementById('componentETA').value = comp.eta;
+            document.getElementById('deleteComponentZone').style.display = 'block';
+            document.getElementById('newComponentModal').classList.add('active');
         }
         
         function deleteCurrentComponent() {
             if (!currentEditComponent) return;
             if (!confirm(`Are you sure you want to delete ${currentEditComponent}?`)) return;
             
-            // Check if component is used in any kit
-            for (const [kitName, kit] of Object.entries(kits)) {
-                if (kit.components[currentEditComponent]) {
-                    alert(`Cannot delete ${currentEditComponent} because it's used in the ${kitName} kit.`);
-                    return;
-                }
-            }
-            
             deleteComponentFromFirebase(currentEditComponent);
             delete components[currentEditComponent];
             
-            closeComponentModal();
-            renderInventory();
+            closeNewComponentModal();
             updateStats();
+            renderInventory();
+            renderKits();
+            showToast('Component deleted');
         }
         
-        function closeComponentModal() {
-            document.getElementById('editComponentModal').classList.remove('active');
-            currentEditComponent = null;
+        function importInventoryCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const text = e.target.result;
+                const lines = text.split('\n').filter(line => line.trim());
+                
+                if (lines.length < 2) {
+                    alert('CSV file is empty or invalid');
+                    return;
+                }
+                
+                components = {};
+                
+                for (let i = 1; i < lines.length; i++) {
+                    const parts = lines[i].split(',').map(p => p.trim());
+                    if (parts.length >= 4) {
+                        const name = parts[0];
+                        const onHand = parseInt(parts[1]) || 0;
+                        const onOrder = parseInt(parts[2]) || 0;
+                        const eta = parts[3] || '';
+                        components[name] = { onHand, onOrder, eta };
+                    }
+                }
+                
+                await autoSyncToFirebase();
+                updateStats();
+                renderInventory();
+                renderKits();
+            };
+            reader.readAsText(file);
+            event.target.value = '';
         }
         
-        function editKit(kitName) {
-            currentEditKit = kitName;
-            const kit = kits[kitName];
+        function exportInventoryCSV() {
+            let csv = 'Component,On Hand,On Order,ETA\n';
+            for (const [name, comp] of Object.entries(components)) {
+                csv += `${name},${comp.onHand},${comp.onOrder},${comp.eta}\n`;
+            }
             
-            const autoCalculatedCost = calculateKitCost(kit.components);
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'inventory.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        function importOrdersCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
             
-            document.getElementById('kitModalTitle').textContent = `Edit ${kitName} Kit`;
-            document.getElementById('newKitName').value = kitName;
-            document.getElementById('newKitName').disabled = true;
-            document.getElementById('newKitCost').value = kit.cost || autoCalculatedCost.toFixed(2);
-            document.getElementById('newKitCost').placeholder = `Auto: ${autoCalculatedCost.toFixed(2)}`;
-            document.getElementById('newKitPrice').value = kit.price || '';
-            document.getElementById('kitModalSaveBtn').textContent = 'Save Changes';
-            document.getElementById('kitModalSaveBtn').onclick = saveKitEdit;
-            document.getElementById('kitModalDeleteBtn').style.display = 'inline-block';
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const text = e.target.result;
+                const lines = text.split('\n').filter(line => line.trim());
+                
+                if (lines.length < 2) {
+                    alert('CSV file is empty or invalid');
+                    return;
+                }
+                
+                const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+                
+                for (let i = 1; i < lines.length; i++) {
+                    const parts = lines[i].split(',').map(p => p.trim());
+                    const order = { id: nextOrderId++ };
+                    
+                    headers.forEach((header, index) => {
+                        if (header === 'name') {
+                            order.name = parts[index];
+                        } else if (header === 'shopify order number' || header === 'order number') {
+                            order.shopifyOrderNumber = parts[index];
+                        } else if (header === 'paid') {
+                            order.paid = parts[index].toLowerCase() === 'true' || parts[index] === '1';
+                        } else if (header === 'shipped') {
+                            order.shipped = parts[index].toLowerCase() === 'true' || parts[index] === '1';
+                        } else if (header === 'tracking') {
+                            order.tracking = parts[index];
+                        } else {
+                            const kitName = Object.keys(kits).find(k => k.toLowerCase() === header);
+                            if (kitName) {
+                                order[kitName.toLowerCase()] = parseInt(parts[index]) || 0;
+                            }
+                        }
+                    });
+                    
+                    if (order.name) {
+                        orders.push(order);
+                    }
+                }
+                
+                await saveNextOrderId();
+                await autoSyncToFirebase();
+                updateStats();
+                renderOrders();
+                renderInventory();
+                renderShippedOrders();
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+        
+        function exportOrdersCSV() {
+            const kitNames = Object.keys(kits);
+            let csv = 'Name,Shopify Order Number,' + kitNames.join(',') + ',Paid,Shipped,Tracking\n';
             
-            renderKitComponentsList(kit.components);
+            orders.forEach(order => {
+                const kitQtys = kitNames.map(k => order[k.toLowerCase()] || 0).join(',');
+                csv += `${order.name},${order.shopifyOrderNumber || ''},${kitQtys},${order.paid},${order.shipped},${order.tracking || ''}\n`;
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'orders.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        function openNewKitModal() {
+            currentEditKit = null;
+            document.getElementById('kitModalTitle').textContent = 'New Kit';
+            document.getElementById('kitName').value = '';
+            document.getElementById('kitName').disabled = false;
+            document.getElementById('kitCost').value = '0';
+            document.getElementById('kitPrice').value = '0';
+            document.getElementById('kitComponentsContainer').innerHTML = '';
+            document.getElementById('deleteKitZone').style.display = 'none';
+            addKitComponent();
             document.getElementById('newKitModal').classList.add('active');
         }
         
-        function renderKitComponentsList(selectedComponents) {
-            const container = document.getElementById('kitComponentsList');
+        function closeNewKitModal() {
+            document.getElementById('newKitModal').classList.remove('active');
+        }
+        
+        function addKitComponent() {
+            const container = document.getElementById('kitComponentsContainer');
+            const div = document.createElement('div');
+            div.className = 'form-group';
+            div.style.display = 'flex';
+            div.style.gap = '10px';
+            div.style.alignItems = 'center';
+            
+            const select = document.createElement('select');
+            select.style.flex = '2';
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = 'Select Component';
+            select.appendChild(option);
+            
+            for (const name of Object.keys(components)) {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                select.appendChild(opt);
+            }
+            
+            const input = document.createElement('input');
+            input.type = 'number';
+            input.min = '1';
+            input.value = '1';
+            input.style.flex = '1';
+            input.placeholder = 'Qty';
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'btn btn-small btn-danger';
+            removeBtn.textContent = '×';
+            removeBtn.type = 'button';
+            removeBtn.onclick = () => div.remove();
+            
+            div.appendChild(select);
+            div.appendChild(input);
+            div.appendChild(removeBtn);
+            container.appendChild(div);
+        }
+        
+        function updateOrderTableHeaders() {
+            // This function would dynamically update headers if needed
+        }
+        
+        function importKitsCSV(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = async function(e) {
+                const text = e.target.result;
+                const lines = text.split('\n').filter(line => line.trim());
+                
+                if (lines.length < 2) {
+                    alert('CSV file is empty or invalid');
+                    return;
+                }
+                
+                kits = {};
+                
+                for (let i = 1; i < lines.length; i++) {
+                    const parts = lines[i].split(',').map(p => p.trim());
+                    if (parts.length >= 4) {
+                        const kitName = parts[0];
+                        const cost = parseFloat(parts[1]) || 0;
+                        const price = parseFloat(parts[2]) || 0;
+                        const componentsStr = parts[3];
+                        
+                        const componentsObj = {};
+                        if (componentsStr) {
+                            const compPairs = componentsStr.split(';');
+                            compPairs.forEach(pair => {
+                                const [qty, name] = pair.split('×').map(s => s.trim());
+                                if (qty && name) {
+                                    componentsObj[name] = parseInt(qty);
+                                }
+                            });
+                        }
+                        
+                        kits[kitName] = {
+                            cost,
+                            price,
+                            components: componentsObj
+                        };
+                    }
+                }
+                
+                await autoSyncToFirebase();
+                updateStats();
+                renderKits();
+                updateOrderTableHeaders();
+                renderOrders();
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+        
+        function exportKitsCSV() {
+            let csv = 'Kit Name,Cost,Price,Components\n';
+            for (const [name, kit] of Object.entries(kits)) {
+                const componentsStr = Object.entries(kit.components)
+                    .map(([comp, qty]) => `${qty}× ${comp}`)
+                    .join('; ');
+                csv += `${name},${kit.cost},${kit.price},"${componentsStr}"\n`;
+            }
+            
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'kits.csv';
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+        
+        function editKit(kitName) {
+            const kit = kits[kitName];
+            if (!kit) return;
+            
+            currentEditKit = kitName;
+            document.getElementById('kitModalTitle').textContent = 'Edit Kit';
+            document.getElementById('kitName').value = kitName;
+            document.getElementById('kitName').disabled = true;
+            document.getElementById('kitCost').value = kit.cost;
+            document.getElementById('kitPrice').value = kit.price;
+            document.getElementById('deleteKitZone').style.display = 'block';
+            
+            const container = document.getElementById('kitComponentsContainer');
             container.innerHTML = '';
             
-            for (const [componentName] of Object.entries(components)) {
-                const qty = selectedComponents[componentName] || 0;
+            for (const [compName, qty] of Object.entries(kit.components)) {
                 const div = document.createElement('div');
-                div.className = 'component-checkbox';
-                div.innerHTML = `
-                    <input type="checkbox" id="kit_${componentName.replace(/[^a-zA-Z0-9]/g, '_')}" ${qty > 0 ? 'checked' : ''} 
-                           onchange="toggleKitComponent('${componentName.replace(/'/g, "\\'")}')">
-                    <label for="kit_${componentName.replace(/[^a-zA-Z0-9]/g, '_')}" style="flex: 1;">${componentName}</label>
-                    <input type="number" id="qty_${componentName.replace(/[^a-zA-Z0-9]/g, '_')}" value="${qty}" min="1" 
-                           style="width: 60px;" placeholder="Qty">
-                `;
+                div.className = 'form-group';
+                div.style.display = 'flex';
+                div.style.gap = '10px';
+                div.style.alignItems = 'center';
+                
+                const select = document.createElement('select');
+                select.style.flex = '2';
+                
+                for (const name of Object.keys(components)) {
+                    const opt = document.createElement('option');
+                    opt.value = name;
+                    opt.textContent = name;
+                    if (name === compName) opt.selected = true;
+                    select.appendChild(opt);
+                }
+                
+                const input = document.createElement('input');
+                input.type = 'number';
+                input.min = '1';
+                input.value = qty;
+                input.style.flex = '1';
+                
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'btn btn-small btn-danger';
+                removeBtn.textContent = '×';
+                removeBtn.type = 'button';
+                removeBtn.onclick = () => div.remove();
+                
+                div.appendChild(select);
+                div.appendChild(input);
+                div.appendChild(removeBtn);
                 container.appendChild(div);
             }
+            
+            document.getElementById('newKitModal').classList.add('active');
         }
         
-        function toggleKitComponent(componentName) {
-            const safeId = componentName.replace(/[^a-zA-Z0-9]/g, '_');
-            const checkbox = document.getElementById(`kit_${safeId}`);
-            const qtyInput = document.getElementById(`qty_${safeId}`);
-            if (!checkbox.checked) {
-                qtyInput.value = '0';
-            } else if (qtyInput.value === '0' || qtyInput.value === '') {
-                qtyInput.value = '1';
-            }
-        }
-        
-        function saveKitEdit() {
-            if (!currentEditKit) return;
+        function saveKit() {
+            const name = document.getElementById('kitName').value.trim();
+            const cost = parseFloat(document.getElementById('kitCost').value) || 0;
+            const price = parseFloat(document.getElementById('kitPrice').value) || 0;
             
-            const kit = kits[currentEditKit];
-            const cost = parseFloat(document.getElementById('newKitCost').value) || 0;
-            const price = parseFloat(document.getElementById('newKitPrice').value) || 0;
-            const selectedComponents = {};
-            
-            for (const [componentName] of Object.entries(components)) {
-                const safeId = componentName.replace(/[^a-zA-Z0-9]/g, '_');
-                const checkbox = document.getElementById(`kit_${safeId}`);
-                const qtyInput = document.getElementById(`qty_${safeId}`);
-                if (checkbox && checkbox.checked) {
-                    const qty = parseInt(qtyInput.value) || 1;
-                    selectedComponents[componentName] = qty;
-                }
-            }
-            
-            if (Object.keys(selectedComponents).length === 0) {
-                alert('Please select at least one component');
+            if (!name) {
+                alert('Please enter a kit name');
                 return;
             }
             
-            const calculatedCost = calculateKitCost(selectedComponents);
+            if (!currentEditKit && kits[name]) {
+                alert('A kit with this name already exists');
+                return;
+            }
             
-            kit.cost = cost > 0 ? cost : calculatedCost;
-            kit.price = price;
-            kit.components = selectedComponents;
+            const componentsObj = {};
+            const container = document.getElementById('kitComponentsContainer');
+            const componentDivs = container.querySelectorAll('.form-group');
             
-            saveKitToFirebase(currentEditKit, kit);
+            componentDivs.forEach(div => {
+                const select = div.querySelector('select');
+                const input = div.querySelector('input[type="number"]');
+                const compName = select.value;
+                const qty = parseInt(input.value) || 1;
+                
+                if (compName) {
+                    componentsObj[compName] = qty;
+                }
+            });
+            
+            if (Object.keys(componentsObj).length === 0) {
+                alert('Please add at least one component');
+                return;
+            }
+            
+            if (currentEditKit && currentEditKit !== name) {
+                delete kits[currentEditKit];
+                deleteKitFromFirebase(currentEditKit);
+            }
+            
+            kits[name] = { cost, price, components: componentsObj };
+            saveKitToFirebase(name, kits[name]);
+            
             closeNewKitModal();
             renderKits();
+            updateOrderTableHeaders();
+            renderOrders();
+            showToast(currentEditKit ? 'Kit updated' : 'Kit created');
         }
         
         function deleteCurrentKit() {
@@ -2120,6 +1553,7 @@ Last Updated: 2025-10-24
             renderKits();
             updateOrderTableHeaders();
             renderOrders();
+            showToast('Kit deleted');
         }
         
         function renderOrdersSummary() {
@@ -2159,6 +1593,10 @@ Last Updated: 2025-10-24
             tbody.innerHTML = '';
             
             const activeOrders = orders.filter(o => !o.shipped);
+            
+            if (activeOrders.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">No active orders</td></tr>';
+            }
             
             activeOrders.forEach(order => {
                 let totalQty = 0;
@@ -2337,11 +1775,8 @@ Last Updated: 2025-10-24
         }
         
         // Initialize - Load data from Firebase
-        // On first load, you need to run migrateDataToFirebase() once
-        // Open console and type: migrateDataToFirebase()
         loadDataFromFirebase();
-        
-        // After data is loaded, the checkAllDataLoaded() function will render everything
+        loadNextOrderId();
     </script>
 </body>
 </html>

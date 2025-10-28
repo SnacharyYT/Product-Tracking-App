@@ -2,7 +2,7 @@
 <html lang="en">
 <!--
 Budget Build Club Inventory Manager
-Version: 1.0.3
+Version: 1.0.4
 Last Updated: 2025-10-24
 -->
 <head>
@@ -348,7 +348,7 @@ Last Updated: 2025-10-24
                     🔄 Migrate Data to Firebase (Click Once)
                 </button>
                 <span id="firebaseStatus" style="font-size: 12px; opacity: 0.9;">⚡ Connected to Firebase</span>
-                <span style="font-size: 11px; opacity: 0.7; margin-left: 15px;">v1.0.3</span>
+                <span style="font-size: 11px; opacity: 0.7; margin-left: 15px;">v1.0.4</span>
             </div>
         </div>
         
@@ -637,7 +637,7 @@ Last Updated: 2025-10-24
     
     <script>
         // App Version
-        const APP_VERSION = '1.0.3';
+        const APP_VERSION = '1.0.4';
         const APP_NAME = 'Budget Build Club Inventory Manager';
         
         // Firebase Configuration
@@ -834,12 +834,27 @@ Last Updated: 2025-10-24
         
         // Check if Firebase has data, if not show migration button
         async function checkForExistingData() {
-            const ordersSnapshot = await db.collection('orders').limit(1).get();
-            const kitsSnapshot = await db.collection('kits').limit(1).get();
+            console.log('Checking for existing data in Firebase...');
             
-            if (ordersSnapshot.empty || kitsSnapshot.empty) {
+            try {
+                const ordersSnapshot = await db.collection('orders').limit(1).get();
+                const kitsSnapshot = await db.collection('kits').limit(1).get();
+                
+                console.log('Orders collection empty?', ordersSnapshot.empty);
+                console.log('Kits collection empty?', kitsSnapshot.empty);
+                
+                if (ordersSnapshot.empty || kitsSnapshot.empty) {
+                    console.log('Data missing - showing migrate button');
+                    document.getElementById('migrateBtn').style.display = 'inline-block';
+                    document.getElementById('firebaseStatus').textContent = '⚠️ No data in Firebase - Click migrate button to upload initial data';
+                } else {
+                    console.log('Data exists - hiding migrate button');
+                }
+            } catch (error) {
+                console.error('Error checking for data:', error);
+                // Show button on error
                 document.getElementById('migrateBtn').style.display = 'inline-block';
-                document.getElementById('firebaseStatus').textContent = '⚠️ No data in Firebase - Click migrate button to upload initial data';
+                document.getElementById('firebaseStatus').textContent = '⚠️ Error checking data - Click migrate button';
             }
         }
         

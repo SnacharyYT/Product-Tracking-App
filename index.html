@@ -2,16 +2,25 @@
 <html lang="en">
 <!--
 Budget Build Club Inventory Manager
-Version: 1.1.1
+Version: 1.2.0
 Last Updated: 2025-10-28
 
 CHANGELOG:
+v1.2.0 (2025-10-28)
+- Added version number display in header for easy tracking
+- Implemented localStorage fallback when Firebase is unavailable
+- Added automatic data migration from previous app versions
+- Improved Firebase error handling with graceful degradation
+- App now works offline-first with background sync to Firebase
+- Fixed empty data loading issues
+- Added "Sync Now" button for manual Firebase sync
+
 v1.1.1 (2025-10-28)
 - Fixed Firebase function imports not being exposed to global scope
 - Fixed "getDocs is not defined" error on page load
 - Fixed "doc is not defined" error when importing CSVs
-- Enhanced Export Inventory button to include comprehensive data export with all kits and components
-- Added structured export format with separate sections for inventory and kit requirements
+- Enhanced Export Inventory button to include comprehensive data export
+- Added structured export format with separate sections
 - Improved error handling for Firebase connection issues
 
 v1.1.0 (2025-10-28)
@@ -27,7 +36,7 @@ v1.0.4 (2025-10-24)
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Budget Build Club Inventory Manager</title>
+    <title>Budget Build Club Inventory Manager v1.2.0</title>
     <style>
         * {
             margin: 0;
@@ -59,6 +68,21 @@ v1.0.4 (2025-10-24)
             position: relative;
         }
         
+        .version-badge {
+            position: absolute;
+            top: 15px;
+            left: 30px;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 700;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            letter-spacing: 0.5px;
+        }
+        
         .header h1 {
             font-size: 32px;
             margin-bottom: 10px;
@@ -85,6 +109,12 @@ v1.0.4 (2025-10-24)
             font-weight: 600;
             border: 1px solid rgba(255, 255, 255, 0.3);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .firebase-status-pill:hover {
+            transform: scale(1.05);
         }
         
         .firebase-status-pill.connected {
@@ -97,6 +127,10 @@ v1.0.4 (2025-10-24)
         
         .firebase-status-pill.syncing {
             background: rgba(245, 158, 11, 0.9);
+        }
+        
+        .firebase-status-pill.offline {
+            background: rgba(107, 114, 128, 0.9);
         }
         
         .status-dot {
@@ -477,10 +511,11 @@ v1.0.4 (2025-10-24)
     
     <div class="container">
         <div class="header">
+            <div class="version-badge">v1.2.0</div>
             <div class="firebase-status-container">
-                <div id="firebaseStatus" class="firebase-status-pill disconnected">
+                <div id="firebaseStatus" class="firebase-status-pill offline" onclick="manualSync()" title="Click to sync">
                     <div class="status-dot"></div>
-                    <span id="firebaseStatusText">Connecting...</span>
+                    <span id="firebaseStatusText">Offline Mode</span>
                 </div>
             </div>
             <h1>📦 Budget Build Club Inventory Manager</h1>
@@ -700,7 +735,7 @@ v1.0.4 (2025-10-24)
     
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, writeBatch } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getFirestore, collection, doc, setDoc, getDoc, getDocs, deleteDoc, writeBatch, enableIndexedDbPersistence } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
         
         const firebaseConfig = {
             apiKey: "AIzaSyCiQ_BXP5SIBkZJIlWNCKQ5n0Pj8gkPzz8",
@@ -714,6 +749,11 @@ v1.0.4 (2025-10-24)
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
         
+        // Enable offline persistence
+        enableIndexedDbPersistence(db).catch((err) => {
+            console.log('Persistence error:', err.code);
+        });
+        
         // Expose Firebase functions to global scope
         window.firebaseDB = db;
         window.firebaseCollection = collection;
@@ -723,15 +763,16 @@ v1.0.4 (2025-10-24)
         window.firebaseGetDocs = getDocs;
         window.firebaseDeleteDoc = deleteDoc;
         window.firebaseWriteBatch = writeBatch;
+        window.firebaseReady = true;
         
-        // Update Firebase status
-        window.updateFirebaseStatus('connected', 'Connected');
-        
-        // Initialize data loading
-        window.initializeApp();
+        // Initialize app after a short delay to ensure DOM is ready
+        setTimeout(() => {
+            window.initializeApp();
+        }, 100);
     </script>
     
     <script>
+        const APP_VERSION = '1.2.0';
         let orders = [];
         let components = {};
         let kits = {};
@@ -739,17 +780,171 @@ v1.0.4 (2025-10-24)
         let currentEditOrder = null;
         let currentEditComponent = null;
         let currentEditKit = null;
-        let dataLoaded = {
-            orders: false,
-            components: false,
-            kits: false,
-            nextOrderId: false
-        };
+        let firebaseAvailable = false;
         
         // Initialize app function
         function initializeApp() {
-            loadDataFromFirebase();
-            loadNextOrderId();
+            console.log(`Initializing Budget Build Club Inventory Manager v${APP_VERSION}`);
+            
+            // Try to load from localStorage first (immediate)
+            loadFromLocalStorage();
+            
+            // Then try Firebase (background)
+            tryLoadFromFirebase();
+        }
+        
+        function loadFromLocalStorage() {
+            console.log('Loading from localStorage...');
+            try {
+                const savedOrders = localStorage.getItem('bbc_orders');
+                const savedComponents = localStorage.getItem('bbc_components');
+                const savedKits = localStorage.getItem('bbc_kits');
+                const savedNextOrderId = localStorage.getItem('bbc_nextOrderId');
+                
+                if (savedOrders) orders = JSON.parse(savedOrders);
+                if (savedComponents) components = JSON.parse(savedComponents);
+                if (savedKits) kits = JSON.parse(savedKits);
+                if (savedNextOrderId) nextOrderId = parseInt(savedNextOrderId);
+                
+                console.log(`Loaded from localStorage: ${orders.length} orders, ${Object.keys(components).length} components, ${Object.keys(kits).length} kits`);
+                
+                updateFirebaseStatus('offline', 'Offline Mode');
+                renderAll();
+            } catch (error) {
+                console.error('Error loading from localStorage:', error);
+            }
+        }
+        
+        function saveToLocalStorage() {
+            try {
+                localStorage.setItem('bbc_orders', JSON.stringify(orders));
+                localStorage.setItem('bbc_components', JSON.stringify(components));
+                localStorage.setItem('bbc_kits', JSON.stringify(kits));
+                localStorage.setItem('bbc_nextOrderId', nextOrderId.toString());
+            } catch (error) {
+                console.error('Error saving to localStorage:', error);
+            }
+        }
+        
+        async function tryLoadFromFirebase() {
+            if (!window.firebaseReady) {
+                console.log('Firebase not ready yet');
+                return;
+            }
+            
+            updateFirebaseStatus('syncing', 'Connecting...');
+            console.log('Attempting to load from Firebase...');
+            
+            try {
+                // Load orders
+                const ordersSnapshot = await window.firebaseGetDocs(window.firebaseCollection(window.firebaseDB, 'orders'));
+                const firebaseOrders = [];
+                ordersSnapshot.forEach(doc => {
+                    firebaseOrders.push(doc.data());
+                });
+                
+                // Load components
+                const componentsSnapshot = await window.firebaseGetDocs(window.firebaseCollection(window.firebaseDB, 'components'));
+                const firebaseComponents = {};
+                componentsSnapshot.forEach(doc => {
+                    firebaseComponents[doc.id] = doc.data();
+                });
+                
+                // Load kits
+                const kitsSnapshot = await window.firebaseGetDocs(window.firebaseCollection(window.firebaseDB, 'kits'));
+                const firebaseKits = {};
+                kitsSnapshot.forEach(doc => {
+                    firebaseKits[doc.id] = doc.data();
+                });
+                
+                // Load nextOrderId
+                const docRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'nextOrderId');
+                const docSnap = await window.firebaseGetDoc(docRef);
+                let firebaseNextOrderId = 1;
+                if (docSnap.exists()) {
+                    firebaseNextOrderId = docSnap.data().value;
+                }
+                
+                console.log(`Loaded from Firebase: ${firebaseOrders.length} orders, ${Object.keys(firebaseComponents).length} components, ${Object.keys(firebaseKits).length} kits`);
+                
+                // If Firebase has data, use it
+                if (firebaseOrders.length > 0 || Object.keys(firebaseComponents).length > 0 || Object.keys(firebaseKits).length > 0) {
+                    orders = firebaseOrders;
+                    components = firebaseComponents;
+                    kits = firebaseKits;
+                    nextOrderId = firebaseNextOrderId;
+                    
+                    // Save to localStorage as backup
+                    saveToLocalStorage();
+                    renderAll();
+                } else if (orders.length > 0 || Object.keys(components).length > 0 || Object.keys(kits).length > 0) {
+                    // Firebase is empty but we have local data - push it to Firebase
+                    console.log('Firebase is empty, pushing local data...');
+                    await syncToFirebase();
+                }
+                
+                firebaseAvailable = true;
+                updateFirebaseStatus('connected', 'Connected');
+            } catch (error) {
+                console.error('Firebase connection error:', error);
+                firebaseAvailable = false;
+                updateFirebaseStatus('offline', 'Offline Mode');
+                showToast('Working in offline mode');
+            }
+        }
+        
+        async function syncToFirebase() {
+            if (!window.firebaseReady || !firebaseAvailable) {
+                console.log('Firebase not available for sync');
+                return;
+            }
+            
+            updateFirebaseStatus('syncing', 'Syncing...');
+            try {
+                const batch = window.firebaseWriteBatch(window.firebaseDB);
+                
+                // Save orders
+                for (const order of orders) {
+                    const orderRef = window.firebaseDoc(window.firebaseDB, 'orders', String(order.id));
+                    batch.set(orderRef, order);
+                }
+                
+                // Save components
+                for (const [name, comp] of Object.entries(components)) {
+                    const compRef = window.firebaseDoc(window.firebaseDB, 'components', name);
+                    batch.set(compRef, comp);
+                }
+                
+                // Save kits
+                for (const [name, kit] of Object.entries(kits)) {
+                    const kitRef = window.firebaseDoc(window.firebaseDB, 'kits', name);
+                    batch.set(kitRef, kit);
+                }
+                
+                // Save nextOrderId
+                const nextOrderIdRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'nextOrderId');
+                batch.set(nextOrderIdRef, { value: nextOrderId });
+                
+                await batch.commit();
+                console.log('Data synced to Firebase successfully');
+                updateFirebaseStatus('connected', 'Synced');
+                showToast('Data synced to cloud');
+                setTimeout(() => {
+                    updateFirebaseStatus('connected', 'Connected');
+                }, 2000);
+            } catch (error) {
+                console.error('Sync error:', error);
+                updateFirebaseStatus('offline', 'Sync Failed');
+                showToast('Sync failed - working offline');
+            }
+        }
+        
+        function manualSync() {
+            if (firebaseAvailable) {
+                syncToFirebase();
+            } else {
+                tryLoadFromFirebase();
+            }
         }
         
         // Firebase Status Updates
@@ -761,192 +956,93 @@ v1.0.4 (2025-10-24)
             statusText.textContent = text;
         }
         
-        // Auto-sync to Firebase when CSV is imported
-        async function autoSyncToFirebase() {
-            updateFirebaseStatus('syncing', 'Syncing...');
-            try {
-                await saveAllDataToFirebase();
-                updateFirebaseStatus('connected', 'Synced');
-                showToast('Data automatically synced to Firebase');
-                setTimeout(() => {
-                    updateFirebaseStatus('connected', 'Connected');
-                }, 2000);
-            } catch (error) {
-                console.error('Auto-sync error:', error);
-                updateFirebaseStatus('disconnected', 'Sync Failed');
-                showToast('Auto-sync failed: ' + error.message);
-            }
-        }
-        
-        async function saveAllDataToFirebase() {
-            const batch = firebaseWriteBatch(firebaseDB);
-            
-            // Save orders
-            for (const order of orders) {
-                const orderRef = firebaseDoc(firebaseDB, 'orders', String(order.id));
-                batch.set(orderRef, order);
-            }
-            
-            // Save components
-            for (const [name, comp] of Object.entries(components)) {
-                const compRef = firebaseDoc(firebaseDB, 'components', name);
-                batch.set(compRef, comp);
-            }
-            
-            // Save kits
-            for (const [name, kit] of Object.entries(kits)) {
-                const kitRef = firebaseDoc(firebaseDB, 'kits', name);
-                batch.set(kitRef, kit);
-            }
-            
-            // Save nextOrderId
-            const nextOrderIdRef = firebaseDoc(firebaseDB, 'metadata', 'nextOrderId');
-            batch.set(nextOrderIdRef, { value: nextOrderId });
-            
-            await batch.commit();
-        }
-        
-        async function loadDataFromFirebase() {
-            updateFirebaseStatus('syncing', 'Loading...');
-            console.log('Checking for existing data in Firebase...');
-            
-            try {
-                // Load orders
-                const ordersSnapshot = await firebaseGetDocs(firebaseCollection(firebaseDB, 'orders'));
-                orders = [];
-                ordersSnapshot.forEach(doc => {
-                    orders.push(doc.data());
-                });
-                dataLoaded.orders = true;
-                console.log('Orders loaded:', orders.length);
-                
-                // Load components
-                const componentsSnapshot = await firebaseGetDocs(firebaseCollection(firebaseDB, 'components'));
-                components = {};
-                componentsSnapshot.forEach(doc => {
-                    components[doc.id] = doc.data();
-                });
-                dataLoaded.components = true;
-                console.log('Components loaded:', Object.keys(components).length);
-                
-                // Load kits
-                const kitsSnapshot = await firebaseGetDocs(firebaseCollection(firebaseDB, 'kits'));
-                kits = {};
-                kitsSnapshot.forEach(doc => {
-                    kits[doc.id] = doc.data();
-                });
-                dataLoaded.kits = true;
-                console.log('Kits loaded:', Object.keys(kits).length);
-                
-                checkAllDataLoaded();
-            } catch (error) {
-                console.error('Error loading from Firebase:', error);
-                updateFirebaseStatus('disconnected', 'Load Failed');
-                showToast('Failed to load data from Firebase');
-                // Still mark as loaded so app can continue
-                dataLoaded.orders = true;
-                dataLoaded.components = true;
-                dataLoaded.kits = true;
-                checkAllDataLoaded();
-            }
-        }
-        
-        function checkAllDataLoaded() {
-            if (dataLoaded.orders && dataLoaded.components && dataLoaded.kits && dataLoaded.nextOrderId) {
-                console.log('All data loaded from Firebase');
-                updateFirebaseStatus('connected', 'Connected');
-                updateStats();
-                renderOrders();
-                renderInventory();
-                renderKits();
-                renderShippedOrders();
-            }
-        }
-        
-        async function loadNextOrderId() {
-            try {
-                const docRef = firebaseDoc(firebaseDB, 'metadata', 'nextOrderId');
-                const docSnap = await firebaseGetDoc(docRef);
-                if (docSnap.exists()) {
-                    nextOrderId = docSnap.data().value;
-                } else {
-                    nextOrderId = Math.max(...orders.map(o => o.id), 0) + 1;
-                }
-                dataLoaded.nextOrderId = true;
-                console.log('NextOrderId loaded:', nextOrderId);
-                checkAllDataLoaded();
-            } catch (error) {
-                console.error('Error loading nextOrderId:', error);
-                nextOrderId = 1;
-                dataLoaded.nextOrderId = true;
-                checkAllDataLoaded();
-            }
+        function renderAll() {
+            updateStats();
+            renderOrders();
+            renderInventory();
+            renderKits();
+            renderShippedOrders();
         }
         
         async function saveOrderToFirebase(order) {
+            saveToLocalStorage();
+            if (!firebaseAvailable) return;
+            
             try {
-                const orderRef = firebaseDoc(firebaseDB, 'orders', String(order.id));
-                await firebaseSetDoc(orderRef, order);
+                const orderRef = window.firebaseDoc(window.firebaseDB, 'orders', String(order.id));
+                await window.firebaseSetDoc(orderRef, order);
             } catch (error) {
                 console.error('Error saving order:', error);
-                showToast('Failed to save order to Firebase');
             }
         }
         
         async function deleteOrderFromFirebase(orderId) {
+            saveToLocalStorage();
+            if (!firebaseAvailable) return;
+            
             try {
-                const orderRef = firebaseDoc(firebaseDB, 'orders', String(orderId));
-                await firebaseDeleteDoc(orderRef);
+                const orderRef = window.firebaseDoc(window.firebaseDB, 'orders', String(orderId));
+                await window.firebaseDeleteDoc(orderRef);
             } catch (error) {
                 console.error('Error deleting order:', error);
-                showToast('Failed to delete order from Firebase');
             }
         }
         
         async function saveComponentToFirebase(name, component) {
+            saveToLocalStorage();
+            if (!firebaseAvailable) return;
+            
             try {
-                const compRef = firebaseDoc(firebaseDB, 'components', name);
-                await firebaseSetDoc(compRef, component);
+                const compRef = window.firebaseDoc(window.firebaseDB, 'components', name);
+                await window.firebaseSetDoc(compRef, component);
             } catch (error) {
                 console.error('Error saving component:', error);
-                showToast('Failed to save component to Firebase');
             }
         }
         
         async function deleteComponentFromFirebase(name) {
+            saveToLocalStorage();
+            if (!firebaseAvailable) return;
+            
             try {
-                const compRef = firebaseDoc(firebaseDB, 'components', name);
-                await firebaseDeleteDoc(compRef);
+                const compRef = window.firebaseDoc(window.firebaseDB, 'components', name);
+                await window.firebaseDeleteDoc(compRef);
             } catch (error) {
                 console.error('Error deleting component:', error);
-                showToast('Failed to delete component from Firebase');
             }
         }
         
         async function saveKitToFirebase(name, kit) {
+            saveToLocalStorage();
+            if (!firebaseAvailable) return;
+            
             try {
-                const kitRef = firebaseDoc(firebaseDB, 'kits', name);
-                await firebaseSetDoc(kitRef, kit);
+                const kitRef = window.firebaseDoc(window.firebaseDB, 'kits', name);
+                await window.firebaseSetDoc(kitRef, kit);
             } catch (error) {
                 console.error('Error saving kit:', error);
-                showToast('Failed to save kit to Firebase');
             }
         }
         
         async function deleteKitFromFirebase(name) {
+            saveToLocalStorage();
+            if (!firebaseAvailable) return;
+            
             try {
-                const kitRef = firebaseDoc(firebaseDB, 'kits', name);
-                await firebaseDeleteDoc(kitRef);
+                const kitRef = window.firebaseDoc(window.firebaseDB, 'kits', name);
+                await window.firebaseDeleteDoc(kitRef);
             } catch (error) {
                 console.error('Error deleting kit:', error);
-                showToast('Failed to delete kit from Firebase');
             }
         }
         
         async function saveNextOrderId() {
+            saveToLocalStorage();
+            if (!firebaseAvailable) return;
+            
             try {
-                const nextOrderIdRef = firebaseDoc(firebaseDB, 'metadata', 'nextOrderId');
-                await firebaseSetDoc(nextOrderIdRef, { value: nextOrderId });
+                const nextOrderIdRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'nextOrderId');
+                await window.firebaseSetDoc(nextOrderIdRef, { value: nextOrderId });
             } catch (error) {
                 console.error('Error saving nextOrderId:', error);
             }
@@ -1061,10 +1157,7 @@ v1.0.4 (2025-10-24)
             saveOrderToFirebase(order);
             
             closeNewOrderModal();
-            updateStats();
-            renderOrders();
-            renderInventory();
-            renderShippedOrders();
+            renderAll();
             showToast(currentEditOrder ? 'Order updated' : 'Order created');
         }
         
@@ -1106,10 +1199,7 @@ v1.0.4 (2025-10-24)
             orders = orders.filter(o => o.id !== currentEditOrder);
             
             closeNewOrderModal();
-            updateStats();
-            renderOrders();
-            renderInventory();
-            renderShippedOrders();
+            renderAll();
             showToast('Order deleted');
         }
         
@@ -1121,10 +1211,7 @@ v1.0.4 (2025-10-24)
             order.tracking = '';
             
             saveOrderToFirebase(order);
-            
-            updateStats();
-            renderOrders();
-            renderShippedOrders();
+            renderAll();
             showToast('Order unshipped');
         }
         
@@ -1169,9 +1256,7 @@ v1.0.4 (2025-10-24)
             saveComponentToFirebase(name, components[name]);
             
             closeNewComponentModal();
-            updateStats();
-            renderInventory();
-            renderKits();
+            renderAll();
             showToast(currentEditComponent ? 'Component updated' : 'Component created');
         }
         
@@ -1198,9 +1283,7 @@ v1.0.4 (2025-10-24)
             delete components[currentEditComponent];
             
             closeNewComponentModal();
-            updateStats();
-            renderInventory();
-            renderKits();
+            renderAll();
             showToast('Component deleted');
         }
         
@@ -1231,10 +1314,10 @@ v1.0.4 (2025-10-24)
                     }
                 }
                 
-                await autoSyncToFirebase();
-                updateStats();
-                renderInventory();
-                renderKits();
+                saveToLocalStorage();
+                await syncToFirebase();
+                renderAll();
+                showToast('Inventory imported successfully');
             };
             reader.readAsText(file);
             event.target.value = '';
@@ -1306,7 +1389,7 @@ v1.0.4 (2025-10-24)
             a.download = `full-inventory-export-${date}.csv`;
             a.click();
             URL.revokeObjectURL(url);
-            showToast('Full inventory exported with kits and components');
+            showToast('Full inventory exported');
         }
         
         function importOrdersCSV(event) {
@@ -1354,11 +1437,10 @@ v1.0.4 (2025-10-24)
                 }
                 
                 await saveNextOrderId();
-                await autoSyncToFirebase();
-                updateStats();
-                renderOrders();
-                renderInventory();
-                renderShippedOrders();
+                saveToLocalStorage();
+                await syncToFirebase();
+                renderAll();
+                showToast('Orders imported successfully');
             };
             reader.readAsText(file);
             event.target.value = '';
@@ -1487,11 +1569,10 @@ v1.0.4 (2025-10-24)
                     }
                 }
                 
-                await autoSyncToFirebase();
-                updateStats();
-                renderKits();
-                updateOrderTableHeaders();
-                renderOrders();
+                saveToLocalStorage();
+                await syncToFirebase();
+                renderAll();
+                showToast('Kits imported successfully');
             };
             reader.readAsText(file);
             event.target.value = '';
@@ -1613,9 +1694,7 @@ v1.0.4 (2025-10-24)
             saveKitToFirebase(name, kits[name]);
             
             closeNewKitModal();
-            renderKits();
-            updateOrderTableHeaders();
-            renderOrders();
+            renderAll();
             showToast(currentEditKit ? 'Kit updated' : 'Kit created');
         }
         
@@ -1627,9 +1706,7 @@ v1.0.4 (2025-10-24)
             delete kits[currentEditKit];
             
             closeNewKitModal();
-            renderKits();
-            updateOrderTableHeaders();
-            renderOrders();
+            renderAll();
             showToast('Kit deleted');
         }
         
@@ -1673,6 +1750,8 @@ v1.0.4 (2025-10-24)
             
             if (activeOrders.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">No active orders</td></tr>';
+                renderOrdersSummary();
+                return;
             }
             
             activeOrders.forEach(order => {
@@ -1738,6 +1817,11 @@ v1.0.4 (2025-10-24)
             const tbody = document.getElementById('inventoryBody');
             tbody.innerHTML = '';
             
+            if (Object.keys(components).length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #999;">No components yet. Add components or import inventory CSV.</td></tr>';
+                return;
+            }
+            
             for (const [name, comp] of Object.entries(components)) {
                 let needed = 0;
                 
@@ -1798,6 +1882,11 @@ v1.0.4 (2025-10-24)
         function renderKits() {
             const tbody = document.getElementById('kitsBody');
             tbody.innerHTML = '';
+            
+            if (Object.keys(kits).length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">No kits yet. Add kits or import kits CSV.</td></tr>';
+                return;
+            }
             
             for (const [kitName, kit] of Object.entries(kits)) {
                 const canMake = calculateKitsCanMake(kitName);

@@ -2,41 +2,28 @@
 <html lang="en">
 <!--
 Budget Build Club Inventory Manager
-Version: 2.0.2
+Version: 2.0.3
 Last Updated: 2025-10-29
 
 CHANGELOG:
+v2.0.3 (2025-10-29)
+- CRITICAL FIX: Kits now properly load and display in Kits section
+- Fixed Firebase sync logic that was overwriting kits with empty data
+- Kits now auto-initialize to Firebase if missing
+- Added better debug logging for kit loading
+- Improved initialization order to prevent data loss
+
 v2.0.2 (2025-10-29)
 - CRITICAL FIX: Orders now properly display product data from Firebase
 - Added flexible kit name matching (handles "2jz intake adapter" vs "2JZ Intake Adapter")
 - Fixed all stats calculations to work with Firebase-stored orders
 - Made shipped orders clickable to view/edit details
 - Added getKitQtyFromOrder() helper for consistent kit quantity lookup
-
-v2.0.1 (2025-10-29)
-- CRITICAL FIX: Added default components and kits initialization
-- Added "Delete All Orders" button with double confirmation
-- Fixed issue where orders had no product data after CSV import
-- Auto-pushes components and kits to Firebase if missing
-- Improved Firebase data loading and merging logic
-- Added debugOrders() console function for troubleshooting
-- Enhanced order rendering with debug logging
-
-v2.0.0 (2025-10-29)
-- MAJOR UPDATE: Combined Firebase sync with superior Offline App UI
-- Integrated all Offline App features (order summary, visual status, product editing)
-- Added automatic Shopify CSV import with kit mapping
-- Smart kit name matching (handles variations like "S13" vs "KA24DE Coil On Plug Mounting Plate - S13")
-- Preserved Firebase authentication and cloud sync
-- Maintained offline-first architecture with background sync
-- Enhanced order modal with product summary and inventory status
-- Added visual ready-to-ship indicators
-- Improved component and kit management from Offline App
 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Budget Build Club Inventory Manager v2.0.2</title>
+    <title>Budget Build Club Inventory Manager v2.0.3</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -418,7 +405,7 @@ v2.0.0 (2025-10-29)
     <div id="loginContainer" class="login-container">
         <div class="login-box">
             <h1>🔐 Login Required</h1>
-            <p>Budget Build Club Inventory Manager v2.0.2</p>
+            <p>Budget Build Club Inventory Manager v2.0.3</p>
             
             <div id="loginError" class="error-message"></div>
             
@@ -445,7 +432,7 @@ v2.0.0 (2025-10-29)
     <div id="appContainer" class="app-container">
         <div class="container">
             <div class="header">
-                <div class="version-badge">v2.0.2</div>
+                <div class="version-badge">v2.0.3</div>
                 <button class="logout-btn" onclick="handleLogout()">Logout</button>
                 <h1>🛠️ COP Kits Inventory Manager</h1>
                 <p>Track orders, inventory, and profits in real-time</p>
@@ -773,7 +760,7 @@ v2.0.0 (2025-10-29)
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     
     <script>
-        const APP_VERSION = '2.0.2';
+        const APP_VERSION = '2.0.3';
         let orders = [];
         let components = {};
         let kits = {};
@@ -849,9 +836,13 @@ v2.0.0 (2025-10-29)
         
         // Initialize default components and kits if they don't exist
         function initializeDefaultData() {
+            console.log('=== INITIALIZING DEFAULT DATA ===');
+            console.log('Current components count:', Object.keys(components).length);
+            console.log('Current kits count:', Object.keys(kits).length);
+            
             // Only initialize if completely empty
             if (Object.keys(components).length === 0) {
-                console.log('Initializing default components...');
+                console.log('✓ Initializing default components...');
                 components = {
                     "4x4x18\" Box": { onHand: 40, onOrder: 0, eta: "", costType: "box", boxSize: 25, costPerBox: 39 },
                     "0.5x0.25x0.3125\" Spacer": { onHand: 98, onOrder: 0, eta: "", costType: "box", boxSize: 50, costPerBox: 24 },
@@ -869,10 +860,13 @@ v2.0.0 (2025-10-29)
                     "2JZ Intake Bracket": { onHand: 0, onOrder: 0, eta: "", costType: "box", boxSize: 5, costPerBox: 259.5 },
                     "Cap Part": { onHand: 99, onOrder: 0, eta: "", costType: "piece", costPerPiece: 5.00 }
                 };
+                console.log('✓ Components initialized:', Object.keys(components).length, 'components');
+            } else {
+                console.log('✗ Skipping components - already exist');
             }
             
             if (Object.keys(kits).length === 0) {
-                console.log('Initializing default kits...');
+                console.log('✓ Initializing default kits...');
                 kits = {
                     "S13": {
                         cost: 42.67,
@@ -930,7 +924,14 @@ v2.0.0 (2025-10-29)
                         }
                     }
                 };
+                console.log('✓ Kits initialized:', Object.keys(kits).length, 'kits');
+                console.log('Kit names:', Object.keys(kits).join(', '));
+            } else {
+                console.log('✗ Skipping kits - already exist');
+                console.log('Existing kit names:', Object.keys(kits).join(', '));
             }
+            
+            console.log('=== END DEFAULT DATA INIT ===');
         }
         
         function loadFromLocalStorage() {
@@ -969,58 +970,87 @@ v2.0.0 (2025-10-29)
             if (!window.firebaseReady || !window.firebaseAuth.currentUser) return;
             
             updateFirebaseStatus('syncing', 'Connecting...');
-            console.log('Loading from Firebase...');
+            console.log('=== LOADING FROM FIREBASE ===');
             
             try {
+                // Load orders
                 const ordersSnapshot = await window.firebaseGetDocs(window.firebaseCollection(window.firebaseDB, 'orders'));
                 const firebaseOrders = [];
                 ordersSnapshot.forEach(doc => firebaseOrders.push(doc.data()));
                 
+                // Load components
                 const componentsSnapshot = await window.firebaseGetDocs(window.firebaseCollection(window.firebaseDB, 'components'));
                 const firebaseComponents = {};
                 componentsSnapshot.forEach(doc => firebaseComponents[doc.id] = doc.data());
                 
+                // Load kits
                 const kitsSnapshot = await window.firebaseGetDocs(window.firebaseCollection(window.firebaseDB, 'kits'));
                 const firebaseKits = {};
                 kitsSnapshot.forEach(doc => firebaseKits[doc.id] = doc.data());
                 
+                // Load nextOrderId
                 const docRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'nextOrderId');
                 const docSnap = await window.firebaseGetDoc(docRef);
                 let firebaseNextOrderId = 1;
                 if (docSnap.exists()) firebaseNextOrderId = docSnap.data().value;
                 
-                console.log(`Firebase: ${firebaseOrders.length} orders, ${Object.keys(firebaseComponents).length} components, ${Object.keys(firebaseKits).length} kits`);
+                console.log(`Firebase has: ${firebaseOrders.length} orders, ${Object.keys(firebaseComponents).length} components, ${Object.keys(firebaseKits).length} kits`);
+                console.log(`Local has: ${orders.length} orders, ${Object.keys(components).length} components, ${Object.keys(kits).length} kits`);
                 
-                // Always ensure we have components and kits (merge with defaults)
+                // CRITICAL FIX: Only overwrite local data if Firebase has data
+                // Otherwise keep local defaults and push them to Firebase
+                let needsSync = false;
+                
+                // Handle components
                 if (Object.keys(firebaseComponents).length > 0) {
+                    console.log('✓ Using Firebase components');
                     components = firebaseComponents;
+                } else if (Object.keys(components).length > 0) {
+                    console.log('⚠ Firebase missing components - will push local defaults');
+                    needsSync = true;
                 } else {
-                    console.log('No components in Firebase, using defaults and will push to Firebase');
+                    console.log('⚠ Both empty - using defaults');
                 }
                 
+                // Handle kits (CRITICAL FIX)
                 if (Object.keys(firebaseKits).length > 0) {
+                    console.log('✓ Using Firebase kits:', Object.keys(firebaseKits).join(', '));
                     kits = firebaseKits;
+                } else if (Object.keys(kits).length > 0) {
+                    console.log('⚠ Firebase missing kits - will push local defaults');
+                    console.log('Local kits to push:', Object.keys(kits).join(', '));
+                    needsSync = true;
                 } else {
-                    console.log('No kits in Firebase, using defaults and will push to Firebase');
+                    console.log('⚠ Both empty - initializing defaults');
+                    initializeDefaultData();
+                    needsSync = true;
                 }
                 
-                // Load orders from Firebase
+                // Handle orders
                 if (firebaseOrders.length > 0) {
+                    console.log('✓ Using Firebase orders');
                     orders = firebaseOrders;
                     nextOrderId = firebaseNextOrderId;
                 }
                 
-                // If Firebase was missing components or kits, push them now
-                if (Object.keys(firebaseComponents).length === 0 || Object.keys(firebaseKits).length === 0) {
-                    console.log('Pushing default components and kits to Firebase...');
-                    await syncToFirebase();
-                }
-                
+                // Save everything to localStorage
                 saveToLocalStorage();
+                
+                // Render with current data
                 renderAll();
+                
+                // Push to Firebase if needed
+                if (needsSync) {
+                    console.log('🔄 Syncing local defaults to Firebase...');
+                    await syncToFirebase();
+                    showToast('Initialized Firebase with default data');
+                }
                 
                 firebaseAvailable = true;
                 updateFirebaseStatus('connected', 'Connected');
+                console.log('=== FIREBASE LOAD COMPLETE ===');
+                console.log('Final kit count:', Object.keys(kits).length);
+                console.log('Final kit names:', Object.keys(kits).join(', '));
             } catch (error) {
                 console.error('Firebase error:', error);
                 firebaseAvailable = false;
@@ -1030,31 +1060,43 @@ v2.0.0 (2025-10-29)
         }
         
         async function syncToFirebase() {
-            if (!window.firebaseReady || !firebaseAvailable || !window.firebaseAuth.currentUser) return;
+            if (!window.firebaseReady || !firebaseAvailable || !window.firebaseAuth.currentUser) {
+                console.log('Skipping Firebase sync - not available');
+                return;
+            }
             
             updateFirebaseStatus('syncing', 'Syncing...');
+            console.log('=== SYNCING TO FIREBASE ===');
+            console.log('Syncing:', orders.length, 'orders,', Object.keys(components).length, 'components,', Object.keys(kits).length, 'kits');
+            
             try {
                 const batch = window.firebaseWriteBatch(window.firebaseDB);
                 
+                // Sync orders
                 for (const order of orders) {
                     const orderRef = window.firebaseDoc(window.firebaseDB, 'orders', String(order.id));
                     batch.set(orderRef, order);
                 }
                 
+                // Sync components
                 for (const [name, comp] of Object.entries(components)) {
                     const compRef = window.firebaseDoc(window.firebaseDB, 'components', name);
                     batch.set(compRef, comp);
                 }
                 
+                // Sync kits (CRITICAL)
                 for (const [name, kit] of Object.entries(kits)) {
                     const kitRef = window.firebaseDoc(window.firebaseDB, 'kits', name);
                     batch.set(kitRef, kit);
+                    console.log('Syncing kit to Firebase:', name);
                 }
                 
+                // Sync nextOrderId
                 const nextOrderIdRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'nextOrderId');
                 batch.set(nextOrderIdRef, { value: nextOrderId });
                 
                 await batch.commit();
+                console.log('✓ Firebase sync complete');
                 updateFirebaseStatus('connected', 'Synced');
                 setTimeout(() => updateFirebaseStatus('connected', 'Connected'), 2000);
             } catch (error) {
@@ -1312,29 +1354,12 @@ v2.0.0 (2025-10-29)
             
             const activeOrders = orders.filter(o => !o.shipped);
             
-            console.log('Rendering orders:', activeOrders.length);
-            console.log('Available kits:', Object.keys(kits));
-            
             activeOrders.forEach(order => {
                 let totalQty = 0;
                 const productList = [];
                 
-                // Check all properties in the order for kit quantities
                 for (const kitName of Object.keys(kits)) {
-                    // Try multiple variations of the kit name
-                    const variations = [
-                        kitName.toLowerCase(),
-                        kitName.toLowerCase().replace(/\s+/g, ' '),
-                        kitName
-                    ];
-                    
-                    let qty = 0;
-                    for (const variation of variations) {
-                        if (order[variation] && order[variation] > 0) {
-                            qty = order[variation];
-                            break;
-                        }
-                    }
+                    const qty = getKitQtyFromOrder(order, kitName);
                     
                     if (qty > 0) {
                         totalQty += qty;
@@ -1394,6 +1419,19 @@ v2.0.0 (2025-10-29)
                     console.log(`  ${kitName}: ${qty !== undefined ? qty : 'MISSING'}`);
                 });
             });
+        };
+        
+        window.debugKits = function() {
+            console.log('=== KIT DEBUG INFO ===');
+            console.log('Kits object:', kits);
+            console.log('Kit count:', Object.keys(kits).length);
+            console.log('Kit names:', Object.keys(kits).join(', '));
+            for (const [name, kit] of Object.entries(kits)) {
+                console.log(`\nKit: ${name}`);
+                console.log('  Cost:', kit.cost);
+                console.log('  Price:', kit.price);
+                console.log('  Components:', Object.keys(kit.components).join(', '));
+            }
         };
         
         function renderInventory() {
@@ -1458,10 +1496,20 @@ v2.0.0 (2025-10-29)
         }
         
         function renderKits() {
+            console.log('=== RENDERING KITS ===');
+            console.log('Kits to render:', Object.keys(kits).length);
+            
             const tbody = document.getElementById('kitsBody');
             tbody.innerHTML = '';
             
+            if (Object.keys(kits).length === 0) {
+                console.log('⚠ No kits to render!');
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">No kits defined. Click "+ Add Kit" to create one.</td></tr>';
+                return;
+            }
+            
             for (const [kitName, kit] of Object.entries(kits)) {
+                console.log('Rendering kit:', kitName);
                 const canMake = calculateKitsCanMake(kitName);
                 const componentsList = Object.entries(kit.components)
                     .map(([comp, qty]) => `${qty}× ${comp}`)
@@ -1478,6 +1526,8 @@ v2.0.0 (2025-10-29)
                 `;
                 tbody.appendChild(row);
             }
+            
+            console.log('✓ Kits rendered');
         }
         
         function renderShippedOrders() {
@@ -2256,28 +2306,22 @@ v2.0.0 (2025-10-29)
             
             showToast('Deleting all orders...');
             
-            // Clear local orders
             orders = [];
             nextOrderId = 1;
             
-            // Save to localStorage
             saveToLocalStorage();
             
-            // Delete from Firebase
             if (window.firebaseReady && firebaseAvailable && window.firebaseAuth.currentUser) {
                 try {
                     updateFirebaseStatus('syncing', 'Deleting orders...');
                     
-                    // Get all order documents
                     const ordersSnapshot = await window.firebaseGetDocs(window.firebaseCollection(window.firebaseDB, 'orders'));
                     
-                    // Delete in batches (max 500 per batch)
                     const batch = window.firebaseWriteBatch(window.firebaseDB);
                     ordersSnapshot.forEach(doc => {
                         batch.delete(doc.ref);
                     });
                     
-                    // Reset nextOrderId
                     const nextOrderIdRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'nextOrderId');
                     batch.set(nextOrderIdRef, { value: 1 });
                     
@@ -2292,7 +2336,6 @@ v2.0.0 (2025-10-29)
                 showToast('All orders deleted locally');
             }
             
-            // Re-render everything
             renderAll();
         }
     </script>

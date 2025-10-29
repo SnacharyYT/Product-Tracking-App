@@ -2,27 +2,25 @@
 <html lang="en">
 <!--
 Budget Build Club Inventory Manager
-Version: 1.2.1
-Last Updated: 2025-10-28
+Version: 2.0.0
+Last Updated: 2025-10-29
 
 CHANGELOG:
-v1.2.1 (2025-10-28)
-- Added Firebase Authentication (email/password)
-- Added login screen for secure access
-- Added logout functionality
-- Updated security rules to require authentication
-- Remember me functionality with secure token storage
-- Auto-login if previously authenticated
-
-v1.2.0 (2025-10-28)
-- Added version number display in header
-- Implemented localStorage fallback
-- Offline-first architecture with background sync
+v2.0.0 (2025-10-29)
+- MAJOR UPDATE: Combined Firebase sync with superior Offline App UI
+- Integrated all Offline App features (order summary, visual status, product editing)
+- Added automatic Shopify CSV import with kit mapping
+- Smart kit name matching (handles variations like "S13" vs "KA24DE Coil On Plug Mounting Plate - S13")
+- Preserved Firebase authentication and cloud sync
+- Maintained offline-first architecture with background sync
+- Enhanced order modal with product summary and inventory status
+- Added visual ready-to-ship indicators
+- Improved component and kit management from Offline App
 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Budget Build Club Inventory Manager v1.2.1</title>
+    <title>Budget Build Club Inventory Manager v2.0.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -33,7 +31,7 @@ v1.2.0 (2025-10-28)
             padding: 20px;
         }
         
-        /* Login Screen Styles */
+        /* Login Screen */
         .login-container {
             display: flex;
             justify-content: center;
@@ -64,53 +62,6 @@ v1.2.0 (2025-10-28)
             margin-bottom: 30px;
         }
         
-        .form-group {
-            margin-bottom: 20px;
-        }
-        
-        .form-group label {
-            display: block;
-            margin-bottom: 8px;
-            font-weight: 600;
-            color: #555;
-        }
-        
-        .form-group input {
-            width: 100%;
-            padding: 12px;
-            border: 2px solid #e5e7eb;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: border-color 0.2s;
-        }
-        
-        .form-group input:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-        
-        .btn {
-            background: #667eea;
-            color: white;
-            border: none;
-            padding: 12px 24px;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 16px;
-            font-weight: 600;
-            width: 100%;
-            transition: background 0.2s;
-        }
-        
-        .btn:hover {
-            background: #5568d3;
-        }
-        
-        .btn:disabled {
-            background: #9ca3af;
-            cursor: not-allowed;
-        }
-        
         .error-message {
             background: #fee2e2;
             color: #991b1b;
@@ -121,9 +72,7 @@ v1.2.0 (2025-10-28)
             display: none;
         }
         
-        .error-message.show {
-            display: block;
-        }
+        .error-message.show { display: block; }
         
         .remember-me {
             display: flex;
@@ -132,18 +81,11 @@ v1.2.0 (2025-10-28)
             margin-bottom: 20px;
         }
         
-        .remember-me input[type="checkbox"] {
-            width: auto;
-        }
+        .remember-me input[type="checkbox"] { width: auto; }
         
-        /* App Container (hidden until logged in) */
-        .app-container {
-            display: none;
-        }
-        
-        .app-container.show {
-            display: block;
-        }
+        /* App Container */
+        .app-container { display: none; }
+        .app-container.show { display: block; }
         
         .container {
             max-width: 1400px;
@@ -189,11 +131,11 @@ v1.2.0 (2025-10-28)
             border: 1px solid rgba(255, 255, 255, 0.3);
             cursor: pointer;
             transition: background 0.2s;
+            color: white;
+            border: none;
         }
         
-        .logout-btn:hover {
-            background: rgba(255, 255, 255, 0.3);
-        }
+        .logout-btn:hover { background: rgba(255, 255, 255, 0.3); }
         
         .firebase-status-pill {
             display: inline-block;
@@ -247,13 +189,17 @@ v1.2.0 (2025-10-28)
             color: #667eea;
         }
         
-        .content {
-            padding: 30px;
+        .stat-card .value::before { content: attr(data-prefix); }
+        
+        .stat-card .subvalue {
+            font-size: 14px;
+            color: #999;
+            margin-top: 4px;
         }
         
-        .section {
-            margin-bottom: 40px;
-        }
+        .content { padding: 30px; }
+        
+        .section { margin-bottom: 40px; }
         
         .section h2 {
             font-size: 24px;
@@ -263,36 +209,46 @@ v1.2.0 (2025-10-28)
             padding-bottom: 10px;
         }
         
-        .controls {
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }
-        
-        .btn-small {
-            padding: 8px 16px;
-            font-size: 14px;
-        }
-        
-        .file-label {
+        .btn {
             background: #667eea;
             color: white;
+            border: none;
             padding: 8px 16px;
             border-radius: 6px;
             cursor: pointer;
             font-size: 14px;
             font-weight: 600;
             transition: background 0.2s;
-            display: inline-block;
         }
         
-        .file-label:hover {
-            background: #5568d3;
+        .btn:hover { background: #5568d3; }
+        .btn:disabled { background: #9ca3af; cursor: not-allowed; }
+        
+        .btn-small { padding: 4px 10px; font-size: 12px; }
+        .btn-danger { background: #ef4444; }
+        .btn-danger:hover { background: #dc2626; }
+        .btn-success { background: #10b981; }
+        .btn-success:hover { background: #059669; }
+        
+        .progress-bar {
+            width: 100%;
+            height: 24px;
+            background: #e5e7eb;
+            border-radius: 12px;
+            overflow: hidden;
+            margin: 20px 0;
         }
         
-        .controls input[type="file"] {
-            display: none;
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #10b981 0%, #059669 100%);
+            transition: width 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 12px;
         }
         
         table {
@@ -320,12 +276,102 @@ v1.2.0 (2025-10-28)
             border-bottom: 1px solid #eee;
         }
         
-        tbody tr {
-            cursor: pointer;
+        tbody tr { cursor: pointer; }
+        tbody tr:hover { opacity: 0.85; }
+        
+        .status-paid {
+            background: #10b981;
+            color: white;
+            padding: 6px 14px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
         }
         
-        tbody tr:hover {
-            background: #f9fafb;
+        .status-paid.awaiting { background: #f59e0b; }
+        .status-unpaid { background: #ef4444; color: white; padding: 6px 14px; border-radius: 12px; font-size: 12px; font-weight: 600; }
+        
+        .onhand-ok { background: #d1fae5; color: #065f46; font-weight: bold; padding: 8px; border-radius: 6px; }
+        .onhand-low { background: #fed7aa; color: #92400e; font-weight: bold; padding: 8px; border-radius: 6px; }
+        .onhand-critical { background: #fecaca; color: #991b1b; font-weight: bold; padding: 8px; border-radius: 6px; }
+        .inventory-ok { color: #10b981; font-weight: bold; }
+        .inventory-low { color: #f59e0b; font-weight: bold; }
+        .inventory-critical { color: #ef4444; font-weight: bold; }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal.active { display: flex; }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 16px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal-content h3 { margin-bottom: 20px; color: #333; }
+        
+        .form-group { margin-bottom: 20px; }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #555;
+        }
+        
+        .form-group input, .form-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .form-group input:focus, .form-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .form-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 20px;
+        }
+        
+        .component-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        
+        .component-checkbox input[type="number"] {
+            width: 80px;
+            padding: 5px;
+            border: 2px solid #e5e7eb;
+            border-radius: 4px;
         }
         
         .toast {
@@ -347,114 +393,6 @@ v1.2.0 (2025-10-28)
             transform: translateY(0);
             opacity: 1;
         }
-        
-        .modal {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0,0,0,0.7);
-            z-index: 1000;
-            justify-content: center;
-            align-items: center;
-        }
-        
-        .modal.active {
-            display: flex;
-        }
-        
-        .modal-content {
-            background: white;
-            border-radius: 16px;
-            padding: 30px;
-            max-width: 600px;
-            width: 90%;
-            max-height: 90vh;
-            overflow-y: auto;
-        }
-        
-        .modal-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 20px;
-        }
-        
-        .modal-actions .btn {
-            flex: 1;
-        }
-        
-        .btn-danger {
-            background: #ef4444;
-        }
-        
-        .btn-danger:hover {
-            background: #dc2626;
-        }
-        
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 10px;
-        }
-        
-        .checkbox-group input[type="checkbox"] {
-            width: auto;
-        }
-        
-        .danger-zone {
-            margin-top: 30px;
-            padding: 15px;
-            background: #fee2e2;
-            border-radius: 8px;
-            border: 2px solid #fecaca;
-        }
-        
-        .danger-zone h3 {
-            color: #991b1b;
-            margin-bottom: 10px;
-        }
-        
-        .orders-summary {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 15px;
-            margin-bottom: 20px;
-        }
-        
-        .status-paid {
-            background: #10b981;
-            color: white;
-            padding: 6px 14px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-        }
-        
-        .status-paid.awaiting {
-            background: #f59e0b;
-        }
-        
-        .status-unpaid {
-            background: #ef4444;
-            color: white;
-            padding: 6px 14px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        
-        .onhand-ok { background: #d1fae5; color: #065f46; font-weight: bold; padding: 8px; border-radius: 6px; }
-        .onhand-low { background: #fed7aa; color: #92400e; font-weight: bold; padding: 8px; border-radius: 6px; }
-        .onhand-critical { background: #fecaca; color: #991b1b; font-weight: bold; padding: 8px; border-radius: 6px; }
-        .inventory-ok { color: #10b981; font-weight: bold; }
-        .inventory-low { color: #f59e0b; font-weight: bold; }
-        .inventory-critical { color: #ef4444; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -464,7 +402,7 @@ v1.2.0 (2025-10-28)
     <div id="loginContainer" class="login-container">
         <div class="login-box">
             <h1>🔐 Login Required</h1>
-            <p>Budget Build Club Inventory Manager v1.2.1</p>
+            <p>Budget Build Club Inventory Manager v2.0.0</p>
             
             <div id="loginError" class="error-message"></div>
             
@@ -487,14 +425,14 @@ v1.2.0 (2025-10-28)
         </div>
     </div>
     
-    <!-- Main App (hidden until logged in) -->
+    <!-- Main App -->
     <div id="appContainer" class="app-container">
         <div class="container">
             <div class="header">
-                <div class="version-badge">v1.2.1</div>
+                <div class="version-badge">v2.0.0</div>
                 <button class="logout-btn" onclick="handleLogout()">Logout</button>
-                <h1>📦 Budget Build Club Inventory Manager</h1>
-                <p>Track orders, components, and inventory in real-time</p>
+                <h1>🛠️ COP Kits Inventory Manager</h1>
+                <p>Track orders, inventory, and profits in real-time</p>
                 <div id="firebaseStatus" class="firebase-status-pill offline" onclick="manualSync()">
                     <span id="firebaseStatusText">Offline Mode</span>
                 </div>
@@ -502,65 +440,77 @@ v1.2.0 (2025-10-28)
             
             <div class="stats-grid">
                 <div class="stat-card">
-                    <h3>Active Orders</h3>
-                    <div class="value" id="activeOrdersCount">0</div>
+                    <h3>Total Orders</h3>
+                    <div class="value" id="totalOrders">0</div>
+                    <div class="subvalue">Active orders</div>
                 </div>
                 <div class="stat-card">
-                    <h3>Paid & Ready</h3>
-                    <div class="value" id="readyToShipCount">0</div>
+                    <h3>Ready to Ship</h3>
+                    <div class="value" id="readyToShip">0</div>
+                    <div class="subvalue" id="readyPercentage">0% ready</div>
                 </div>
                 <div class="stat-card">
-                    <h3>Components</h3>
-                    <div class="value" id="totalComponents">0</div>
+                    <h3>Paid Orders</h3>
+                    <div class="value" id="paidOrders">0</div>
+                    <div class="subvalue" id="paidPercentage">0%</div>
                 </div>
                 <div class="stat-card">
-                    <h3>Inventory Value</h3>
-                    <div class="value" id="inventoryValue">$0</div>
+                    <h3>Revenue Collected</h3>
+                    <div class="value" id="revenueCollected" style="color: #10b981;" data-prefix="$">0</div>
+                    <div class="subvalue" id="revenueTotal">of $0 total</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Total Profit</h3>
+                    <div class="value" id="totalProfit" style="color: #10b981;" data-prefix="$">0</div>
+                    <div class="subvalue" id="profitMargin">0% margin</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Total Costs</h3>
+                    <div class="value" id="totalCosts" style="color: #ef4444;" data-prefix="$">0</div>
+                    <div class="subvalue">Materials + Shipping</div>
                 </div>
             </div>
             
             <div class="content">
                 <div class="section">
-                    <h2>📋 Active Orders</h2>
-                    <div class="controls">
-                        <button class="btn btn-small" onclick="openNewOrderModal()">+ New Order</button>
-                        <label class="file-label">
-                            📥 Import CSV
-                            <input type="file" id="importOrdersCSV" accept=".csv" onchange="importOrdersCSV(event)">
-                        </label>
-                        <button class="btn btn-small" onclick="exportOrdersCSV()">📤 Export</button>
+                    <h2>📦 Orders</h2>
+                    <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+                        <button class="btn" onclick="showNewOrderModal()">+ Add New Order</button>
+                        <button class="btn" onclick="document.getElementById('csvFileInput').click()">📥 Import from Shopify CSV</button>
+                        <input type="file" id="csvFileInput" accept=".csv" style="display: none;" onchange="handleCSVImport(event)">
                     </div>
-                    <div id="ordersSummary" class="orders-summary"></div>
+                    
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="collectionProgress" style="width: 0%">0% Collected</div>
+                    </div>
+                    
+                    <div style="display: flex; gap: 15px; margin-bottom: 25px; padding: 20px; background: #f8f9fa; border-radius: 12px; flex-wrap: wrap; justify-content: center;">
+                        <div id="ordersSummary" style="display: flex; gap: 15px; flex-wrap: wrap;"></div>
+                    </div>
+                    
                     <table>
                         <thead>
                             <tr>
-                                <th>Customer Name</th>
-                                <th>Order #</th>
-                                <th>Products</th>
-                                <th>Status</th>
+                                <th style="width: 25%;">Customer</th>
+                                <th style="width: 15%;">Order #</th>
+                                <th style="width: 35%;">Products</th>
+                                <th style="width: 25%;">Payment Status</th>
                             </tr>
                         </thead>
-                        <tbody id="ordersTableBody">
-                            <tr><td colspan="4" style="text-align: center; color: #999;">Loading...</td></tr>
-                        </tbody>
+                        <tbody id="ordersTableBody"></tbody>
                     </table>
                 </div>
                 
                 <div class="section">
-                    <h2>📦 Inventory Status</h2>
-                    <div class="controls">
-                        <button class="btn btn-small" onclick="openNewComponentModal()">+ New Component</button>
-                        <label class="file-label">
-                            📥 Import CSV
-                            <input type="file" id="importInventoryCSV" accept=".csv" onchange="importInventoryCSV(event)">
-                        </label>
-                        <button class="btn btn-small" onclick="exportInventoryCSV()">📤 Export Full Inventory</button>
-                    </div>
+                    <h2>📊 Inventory</h2>
+                    
+                    <h3 style="margin: 20px 0 10px 0; color: #555;">Components</h3>
+                    <button class="btn" onclick="showNewComponentModal()" style="margin-bottom: 20px;">+ Add Component</button>
                     <table>
                         <thead>
                             <tr>
                                 <th>Component</th>
-                                <th>Needed</th>
+                                <th>Needed for Orders</th>
                                 <th>On Hand</th>
                                 <th>On Order</th>
                                 <th>ETA</th>
@@ -568,152 +518,185 @@ v1.2.0 (2025-10-28)
                                 <th>Status</th>
                             </tr>
                         </thead>
-                        <tbody id="inventoryBody">
-                            <tr><td colspan="7" style="text-align: center; color: #999;">Loading...</td></tr>
-                        </tbody>
+                        <tbody id="inventoryBody"></tbody>
                     </table>
-                </div>
-                
-                <div class="section">
-                    <h2>🎁 Kits</h2>
-                    <div class="controls">
-                        <button class="btn btn-small" onclick="openNewKitModal()">+ New Kit</button>
-                        <label class="file-label">
-                            📥 Import CSV
-                            <input type="file" id="importKitsCSV" accept=".csv" onchange="importKitsCSV(event)">
-                        </label>
-                        <button class="btn btn-small" onclick="exportKitsCSV()">📤 Export</button>
-                    </div>
+                    
+                    <h3 style="margin: 40px 0 10px 0; color: #555;">Kits</h3>
+                    <button class="btn" onclick="showNewKitModal()" style="margin-bottom: 20px;">+ Add Kit</button>
                     <table>
                         <thead>
                             <tr>
                                 <th>Kit Name</th>
-                                <th>Components</th>
+                                <th>Components Required</th>
                                 <th>Cost</th>
                                 <th>Price</th>
                                 <th>Can Make</th>
                             </tr>
                         </thead>
-                        <tbody id="kitsBody">
-                            <tr><td colspan="5" style="text-align: center; color: #999;">Loading...</td></tr>
-                        </tbody>
+                        <tbody id="kitsBody"></tbody>
                     </table>
                 </div>
                 
                 <div class="section">
-                    <h2>✅ Shipped Orders</h2>
+                    <h2>📮 Shipped Orders</h2>
                     <table>
                         <thead>
                             <tr>
                                 <th>Customer</th>
-                                <th>Items</th>
+                                <th>Order</th>
                                 <th>Amount</th>
                                 <th>Tracking</th>
                                 <th>Actions</th>
                             </tr>
                         </thead>
-                        <tbody id="shippedBody">
-                            <tr><td colspan="5" style="text-align: center; color: #999;">No shipped orders yet</td></tr>
-                        </tbody>
+                        <tbody id="shippedBody"></tbody>
                     </table>
                 </div>
             </div>
         </div>
     </div>
     
-    <!-- Modals (simplified versions) -->
+    <!-- Order Modal -->
     <div id="newOrderModal" class="modal">
         <div class="modal-content">
-            <h2 id="orderModalTitle">New Order</h2>
+            <h3 id="orderModalTitle">Add New Order</h3>
             <div class="form-group">
                 <label>Customer Name</label>
-                <input type="text" id="orderName" placeholder="John Doe">
+                <input type="text" id="newOrderName" placeholder="Enter customer name">
             </div>
+            
+            <div id="orderSummaryView" style="display: none;">
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h4 style="margin: 0 0 15px 0; color: #333;">Order Summary</h4>
+                    <div id="orderSummaryContent"></div>
+                    <div style="margin-top: 15px; padding-top: 15px; border-top: 2px solid #e5e7eb;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <strong>Total:</strong>
+                            <strong id="orderSummaryTotal" style="font-size: 20px; color: #667eea;">$0</strong>
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h4 style="margin: 0 0 15px 0; color: #333;">Components Needed</h4>
+                    <div id="orderComponentsNeeded"></div>
+                </div>
+                
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h4 style="margin: 0 0 15px 0; color: #333;">Inventory Status</h4>
+                    <div id="orderInventoryStatus"></div>
+                </div>
+                
+                <div style="background: #fff; padding: 20px; border-radius: 8px; border: 2px solid #e5e7eb; margin-bottom: 20px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <h4 style="margin: 0; color: #333;">Edit Products</h4>
+                        <button class="btn btn-small" onclick="showAddProductToOrder()">+ Add Product</button>
+                    </div>
+                    <div id="orderProductsList"></div>
+                </div>
+            </div>
+            
+            <div id="orderKitsContainer" style="display: none;"></div>
             <div class="form-group">
-                <label>Shopify Order #</label>
-                <input type="text" id="orderShopifyNumber" placeholder="#1001">
+                <label>
+                    <input type="checkbox" id="newOrderPaid"> Paid
+                </label>
             </div>
-            <div id="orderKitsContainer"></div>
-            <div class="checkbox-group">
-                <input type="checkbox" id="orderPaid">
-                <label for="orderPaid">Paid</label>
-            </div>
-            <div class="checkbox-group">
-                <input type="checkbox" id="orderShipped">
-                <label for="orderShipped">Shipped</label>
-            </div>
-            <div class="form-group" id="trackingGroup" style="display: none;">
-                <label>Tracking Number</label>
-                <input type="text" id="orderTracking" placeholder="1Z999AA10123456784">
-            </div>
-            <div class="modal-actions">
-                <button class="btn" onclick="saveOrder()">Save Order</button>
-                <button class="btn btn-danger" onclick="closeNewOrderModal()">Cancel</button>
-            </div>
-            <div id="deleteOrderZone" class="danger-zone" style="display: none;">
-                <h3>⚠️ Danger Zone</h3>
-                <button class="btn btn-danger" onclick="deleteCurrentOrder()">Delete Order</button>
+            <div class="form-actions">
+                <button class="btn" onclick="closeNewOrderModal()">Cancel</button>
+                <button class="btn btn-success" id="orderModalSaveBtn" onclick="addNewOrder()">Add Order</button>
+                <button class="btn btn-danger" id="orderModalDeleteBtn" onclick="deleteCurrentOrder()" style="display: none;">Delete Order</button>
+                <button class="btn btn-success" id="orderModalShipBtn" onclick="showShipOrderModalFromEdit()" style="display: none;">Ship Order</button>
             </div>
         </div>
     </div>
     
-    <div id="newComponentModal" class="modal">
+    <!-- Component Modal -->
+    <div id="editComponentModal" class="modal">
         <div class="modal-content">
-            <h2 id="componentModalTitle">New Component</h2>
+            <h3 id="componentModalTitle">Edit Component</h3>
             <div class="form-group">
                 <label>Component Name</label>
-                <input type="text" id="componentName" placeholder="M3 Screw">
+                <input type="text" id="editComponentName">
             </div>
             <div class="form-group">
                 <label>On Hand</label>
-                <input type="number" id="componentOnHand" value="0">
+                <input type="number" id="editComponentOnHand" min="0">
             </div>
             <div class="form-group">
                 <label>On Order</label>
-                <input type="number" id="componentOnOrder" value="0">
+                <input type="number" id="editComponentOnOrder" min="0">
             </div>
             <div class="form-group">
                 <label>ETA</label>
-                <input type="text" id="componentETA" placeholder="2 weeks">
+                <input type="text" id="editComponentEta" placeholder="e.g., 10/23">
             </div>
-            <div class="modal-actions">
-                <button class="btn" onclick="saveComponent()">Save</button>
-                <button class="btn btn-danger" onclick="closeNewComponentModal()">Cancel</button>
+            <div class="form-group">
+                <label>Cost Type</label>
+                <select id="editComponentCostType" onchange="toggleCostFields()">
+                    <option value="piece">Per Piece</option>
+                    <option value="box">Per Box/Pack</option>
+                </select>
             </div>
-            <div id="deleteComponentZone" class="danger-zone" style="display: none;">
-                <h3>⚠️ Danger Zone</h3>
-                <button class="btn btn-danger" onclick="deleteCurrentComponent()">Delete</button>
+            <div class="form-group" id="pieceCostGroup">
+                <label>Cost Per Piece ($)</label>
+                <input type="number" id="editComponentCostPiece" step="0.01" min="0" placeholder="0.00">
+            </div>
+            <div class="form-group" id="boxCostGroup" style="display: none;">
+                <label>Box/Pack Size</label>
+                <input type="number" id="editComponentBoxSize" min="1" placeholder="e.g., 50">
+                <label style="margin-top: 10px;">Cost Per Box/Pack ($)</label>
+                <input type="number" id="editComponentCostBox" step="0.01" min="0" placeholder="0.00">
+            </div>
+            <div class="form-actions">
+                <button class="btn" onclick="closeEditComponentModal()">Cancel</button>
+                <button class="btn btn-success" onclick="saveComponentEdit()">Save</button>
+                <button class="btn btn-danger" id="componentDeleteBtn" onclick="deleteCurrentComponent()" style="display: none;">Delete</button>
             </div>
         </div>
     </div>
     
+    <!-- Kit Modal -->
     <div id="newKitModal" class="modal">
         <div class="modal-content">
-            <h2 id="kitModalTitle">New Kit</h2>
+            <h3 id="kitModalTitle">Add New Kit</h3>
             <div class="form-group">
                 <label>Kit Name</label>
-                <input type="text" id="kitName" placeholder="Basic Kit">
+                <input type="text" id="newKitName" placeholder="Enter kit name">
             </div>
             <div class="form-group">
-                <label>Cost</label>
-                <input type="number" step="0.01" id="kitCost" value="0">
+                <label>Cost Per Kit ($) - <small>Leave empty to auto-calculate</small></label>
+                <input type="number" id="newKitCost" step="0.01" min="0" placeholder="Auto-calculated">
             </div>
             <div class="form-group">
-                <label>Price</label>
-                <input type="number" step="0.01" id="kitPrice" value="0">
+                <label>Sell Price Per Kit ($)</label>
+                <input type="number" id="newKitPrice" step="0.01" min="0" placeholder="0.00">
             </div>
             <div class="form-group">
-                <label>Components</label>
-                <div id="kitComponentsContainer"></div>
-                <button class="btn btn-small" onclick="addKitComponent()">+ Add Component</button>
+                <label>Select Components</label>
+                <div id="kitComponentsList" style="max-height: 300px; overflow-y: auto; border: 2px solid #e5e7eb; border-radius: 8px; padding: 10px;">
+                </div>
             </div>
-            <div class="modal-actions">
-                <button class="btn" onclick="saveKit()">Save</button>
-                <button class="btn btn-danger" onclick="closeNewKitModal()">Cancel</button>
+            <div class="form-actions">
+                <button class="btn" onclick="closeNewKitModal()">Cancel</button>
+                <button class="btn btn-success" id="kitModalSaveBtn" onclick="addNewKit()">Add Kit</button>
+                <button class="btn btn-danger" id="kitModalDeleteBtn" onclick="deleteCurrentKit()" style="display: none;">Delete Kit</button>
             </div>
-            <div id="deleteKitZone" class="danger-zone" style="display: none;">
-                <h3>⚠️ Danger Zone</h3>
-                <button class="btn btn-danger" onclick="deleteCurrentKit()">Delete</button>
+        </div>
+    </div>
+    
+    <!-- Ship Order Modal -->
+    <div id="shipOrderModal" class="modal">
+        <div class="modal-content">
+            <h3>Ship Order</h3>
+            <p id="shipOrderCustomer"></p>
+            <div class="form-group">
+                <label>Tracking Number</label>
+                <input type="text" id="shipOrderTracking" placeholder="Enter tracking number">
+            </div>
+            <div class="form-actions">
+                <button class="btn" onclick="closeShipOrderModal()">Cancel</button>
+                <button class="btn btn-success" onclick="confirmShipOrder()">Mark as Shipped</button>
             </div>
         </div>
     </div>
@@ -736,15 +719,11 @@ v1.2.0 (2025-10-28)
         const auth = getAuth(app);
         const db = getFirestore(app);
         
-        // Set persistence
         setPersistence(auth, browserLocalPersistence);
-        
-        // Enable offline persistence
         enableIndexedDbPersistence(db).catch((err) => {
             console.log('Persistence error:', err.code);
         });
         
-        // Expose to global scope
         window.firebaseDB = db;
         window.firebaseAuth = auth;
         window.firebaseCollection = collection;
@@ -758,7 +737,6 @@ v1.2.0 (2025-10-28)
         window.signOut = signOut;
         window.firebaseReady = true;
         
-        // Check auth state
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 console.log('User authenticated:', user.email);
@@ -773,16 +751,28 @@ v1.2.0 (2025-10-28)
         });
     </script>
     
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
+    
     <script>
-        const APP_VERSION = '1.2.1';
+        const APP_VERSION = '2.0.0';
         let orders = [];
         let components = {};
         let kits = {};
         let nextOrderId = 1;
-        let currentEditOrder = null;
+        let currentEditOrderId = null;
         let currentEditComponent = null;
         let currentEditKit = null;
+        let currentShipOrderId = null;
         let firebaseAvailable = false;
+        
+        // Kit name mapping for Shopify CSV import
+        const KIT_NAME_MAP = {
+            'KA24DE Coil On Plug Mounting Plate - S13 (3 Valve Cover Bolts)': 'S13',
+            'KA24DE Coil On Plug Mounting Plate - S14 (2 Valve Cover Bolts)': 'S14',
+            'KA24 S13 Distributor Cap Cover': 'Cap',
+            'Toyota 1JZ/2JZ Smart Coil (1NZ) Bracket - Single': '1NZ COP Adapter',
+            '2JZ-GE to 2JZ-GTE FFFIM Adapter - 2JZ': '2JZ Intake Adapter'
+        };
         
         // Login handling
         async function handleLogin() {
@@ -803,7 +793,6 @@ v1.2.0 (2025-10-28)
             
             try {
                 await window.signInWithEmailAndPassword(window.firebaseAuth, email, password);
-                // onAuthStateChanged will handle the rest
             } catch (error) {
                 console.error('Login error:', error);
                 errorDiv.textContent = 'Invalid email or password. Please try again.';
@@ -825,14 +814,13 @@ v1.2.0 (2025-10-28)
             }
         }
         
-        // Allow Enter key to login
         document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('loginPassword')?.addEventListener('keypress', (e) => {
                 if (e.key === 'Enter') handleLogin();
             });
         });
         
-        // Initialize app function
+        // Initialize app
         function initializeApp() {
             console.log(`Initializing Budget Build Club Inventory Manager v${APP_VERSION}`);
             loadFromLocalStorage();
@@ -946,7 +934,6 @@ v1.2.0 (2025-10-28)
                 
                 await batch.commit();
                 updateFirebaseStatus('connected', 'Synced');
-                showToast('Synced to cloud');
                 setTimeout(() => updateFirebaseStatus('connected', 'Connected'), 2000);
             } catch (error) {
                 console.error('Sync error:', error);
@@ -955,15 +942,102 @@ v1.2.0 (2025-10-28)
         }
         
         function manualSync() {
-            if (firebaseAvailable) syncToFirebase();
-            else tryLoadFromFirebase();
+            if (firebaseAvailable) {
+                syncToFirebase();
+                showToast('Syncing to cloud...');
+            } else {
+                tryLoadFromFirebase();
+                showToast('Reconnecting...');
+            }
         }
         
         function updateFirebaseStatus(status, text) {
             const statusPill = document.getElementById('firebaseStatus');
             const statusText = document.getElementById('firebaseStatusText');
-            statusPill.className = 'firebase-status-pill ' + status;
-            statusText.textContent = text;
+            if (statusPill && statusText) {
+                statusPill.className = 'firebase-status-pill ' + status;
+                statusText.textContent = text;
+            }
+        }
+        
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+        
+        // CSV Import Handler
+        async function handleCSVImport(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            showToast('Processing CSV...');
+            
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                complete: function(results) {
+                    console.log('CSV parsed:', results.data.length, 'rows');
+                    
+                    // Group by order number
+                    const orderMap = new Map();
+                    
+                    results.data.forEach(row => {
+                        const orderNum = row['Name']?.trim();
+                        if (!orderNum || !orderNum.startsWith('#')) return;
+                        
+                        if (!orderMap.has(orderNum)) {
+                            orderMap.set(orderNum, {
+                                id: nextOrderId++,
+                                shopifyOrderNumber: orderNum,
+                                name: row['Billing Name']?.trim() || row['Shipping Name']?.trim() || 'Unknown',
+                                paid: row['Financial Status']?.toLowerCase() === 'paid',
+                                shipped: row['Fulfillment Status']?.toLowerCase() === 'fulfilled',
+                                tracking: ''
+                            });
+                        }
+                        
+                        const order = orderMap.get(orderNum);
+                        const lineitemName = row['Lineitem name']?.trim();
+                        const lineitemQty = parseInt(row['Lineitem quantity']) || 0;
+                        
+                        if (lineitemName && lineitemQty > 0) {
+                            // Map Shopify product name to kit name
+                            let kitName = KIT_NAME_MAP[lineitemName] || lineitemName;
+                            
+                            // Try fuzzy matching if exact match not found
+                            if (!KIT_NAME_MAP[lineitemName]) {
+                                for (const [shopifyName, mappedName] of Object.entries(KIT_NAME_MAP)) {
+                                    if (lineitemName.toLowerCase().includes(mappedName.toLowerCase())) {
+                                        kitName = mappedName;
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            const kitKey = kitName.toLowerCase();
+                            order[kitKey] = (order[kitKey] || 0) + lineitemQty;
+                        }
+                    });
+                    
+                    // Add orders to array
+                    const newOrders = Array.from(orderMap.values());
+                    orders.push(...newOrders);
+                    
+                    saveToLocalStorage();
+                    syncToFirebase();
+                    renderAll();
+                    
+                    showToast(`Imported ${newOrders.length} orders from Shopify!`);
+                },
+                error: function(error) {
+                    console.error('CSV parse error:', error);
+                    showToast('Error parsing CSV');
+                }
+            });
+            
+            event.target.value = '';
         }
         
         function renderAll() {
@@ -974,100 +1048,109 @@ v1.2.0 (2025-10-28)
             renderShippedOrders();
         }
         
-        function showToast(message) {
-            const toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 3000);
+        function calculateStats() {
+            const activeOrders = orders.filter(o => !o.shipped);
+            const paidOrders = activeOrders.filter(o => o.paid);
+            
+            let totalRevenue = 0;
+            let revenueCollected = 0;
+            
+            activeOrders.forEach(order => {
+                for (const [kitName, kit] of Object.entries(kits)) {
+                    const qty = order[kitName.toLowerCase()] || 0;
+                    totalRevenue += qty * (kit.price || 0);
+                }
+            });
+            
+            paidOrders.forEach(order => {
+                for (const [kitName, kit] of Object.entries(kits)) {
+                    const qty = order[kitName.toLowerCase()] || 0;
+                    revenueCollected += qty * (kit.price || 0);
+                }
+            });
+            
+            let totalCosts = 0;
+            paidOrders.forEach(order => {
+                for (const [kitName, kit] of Object.entries(kits)) {
+                    const qty = order[kitName.toLowerCase()] || 0;
+                    totalCosts += qty * (kit.cost || 0);
+                }
+            });
+            
+            const profit = revenueCollected - totalCosts;
+            const margin = revenueCollected > 0 ? (profit / revenueCollected) * 100 : 0;
+            
+            return { 
+                totalOrders: activeOrders.length, 
+                paidOrders: paidOrders.length, 
+                totalRevenue, 
+                revenueCollected, 
+                profit, 
+                margin, 
+                totalCosts 
+            };
         }
         
         function updateStats() {
+            const stats = calculateStats();
             const activeOrders = orders.filter(o => !o.shipped);
-            const readyToShip = activeOrders.filter(o => o.paid && canFulfillOrder(o));
-            let inventoryValue = 0;
-            for (const comp of Object.values(components)) {
-                inventoryValue += comp.onHand * 0.10;
-            }
-            document.getElementById('activeOrdersCount').textContent = activeOrders.length;
-            document.getElementById('readyToShipCount').textContent = readyToShip.length;
-            document.getElementById('totalComponents').textContent = Object.keys(components).length;
-            document.getElementById('inventoryValue').textContent = '$' + inventoryValue.toFixed(0);
+            const paidOrders = activeOrders.filter(o => o.paid);
+            
+            let readyToShipCount = 0;
+            paidOrders.forEach(order => {
+                if (canFulfillOrder(order)) {
+                    readyToShipCount++;
+                }
+            });
+            
+            document.getElementById('totalOrders').textContent = stats.totalOrders;
+            document.getElementById('readyToShip').textContent = readyToShipCount;
+            const readyPct = paidOrders.length > 0 ? ((readyToShipCount / paidOrders.length) * 100).toFixed(1) : 0;
+            document.getElementById('readyPercentage').textContent = `${readyPct}% ready`;
+            document.getElementById('paidOrders').textContent = stats.paidOrders;
+            const paidPct = stats.totalOrders > 0 ? ((stats.paidOrders / stats.totalOrders) * 100).toFixed(1) : 0;
+            document.getElementById('paidPercentage').textContent = `${paidPct}%`;
+            document.getElementById('revenueCollected').textContent = `${stats.revenueCollected.toFixed(0)}`;
+            document.getElementById('revenueTotal').textContent = `of $${stats.totalRevenue.toFixed(0)} total`;
+            document.getElementById('totalProfit').textContent = `${stats.profit.toFixed(2)}`;
+            document.getElementById('profitMargin').textContent = `${stats.margin.toFixed(1)}% margin`;
+            document.getElementById('totalCosts').textContent = `${stats.totalCosts.toFixed(2)}`;
+            const collectionPct = stats.totalRevenue > 0 ? (stats.revenueCollected / stats.totalRevenue) * 100 : 0;
+            document.getElementById('collectionProgress').style.width = collectionPct + '%';
+            document.getElementById('collectionProgress').textContent = `${collectionPct.toFixed(1)}% Collected`;
         }
         
         function canFulfillOrder(order) {
             for (const [kitName, kit] of Object.entries(kits)) {
                 const qtyNeeded = order[kitName.toLowerCase()] || 0;
-                if (qtyNeeded > 0) {
-                    for (const [componentName, componentQty] of Object.entries(kit.components)) {
-                        const comp = components[componentName];
-                        if (!comp || comp.onHand < qtyNeeded * componentQty) return false;
-                    }
+                if (qtyNeeded === 0) continue;
+                
+                for (const [componentName, componentQty] of Object.entries(kit.components)) {
+                    const comp = components[componentName];
+                    if (!comp) return false;
+                    const totalNeeded = componentQty * qtyNeeded;
+                    if (comp.onHand < totalNeeded) return false;
                 }
             }
             return true;
         }
         
-        // Simplified rendering functions (include full implementations from previous version)
-        function renderOrders() {
-            const tbody = document.getElementById('ordersTableBody');
-            tbody.innerHTML = '';
-            const activeOrders = orders.filter(o => !o.shipped);
-            
-            if (activeOrders.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; color: #999;">No active orders</td></tr>';
-                renderOrdersSummary();
-                return;
-            }
-            
-            activeOrders.forEach(order => {
-                let totalQty = 0;
-                const productList = [];
-                for (const kitName of Object.keys(kits)) {
-                    const qty = order[kitName.toLowerCase()] || 0;
-                    if (qty > 0) {
-                        totalQty += qty;
-                        productList.push(`${qty}× ${kitName}`);
-                    }
-                }
-                const productText = totalQty > 0 ? `${totalQty} item${totalQty > 1 ? 's' : ''} (${productList.join(', ')})` : 'No products';
-                const ready = canFulfillOrder(order);
-                let bgColor = '', statusText = '';
-                if (order.paid && ready) {
-                    bgColor = '#d1fae5';
-                    statusText = '<span class="status-paid">✓ PAID & READY</span>';
-                } else if (order.paid) {
-                    bgColor = '#fef3c7';
-                    statusText = '<span class="status-paid awaiting">⚠ AWAITING STOCK</span>';
-                } else {
-                    bgColor = '#fee2e2';
-                    statusText = '<span class="status-unpaid">UNPAID</span>';
-                }
-                
-                const tr = document.createElement('tr');
-                tr.style.backgroundColor = bgColor;
-                tr.onclick = () => editOrder(order.id);
-                tr.innerHTML = `
-                    <td><strong>${order.name}</strong></td>
-                    <td>${order.shopifyOrderNumber || '-'}</td>
-                    <td>${productText}</td>
-                    <td>${statusText}</td>
-                `;
-                tbody.appendChild(tr);
-            });
-            renderOrdersSummary();
-        }
-        
         function renderOrdersSummary() {
             const activeOrders = orders.filter(o => !o.shipped);
             const kitTotals = {};
+            
             activeOrders.forEach(order => {
                 for (const kitName of Object.keys(kits)) {
                     const qty = order[kitName.toLowerCase()] || 0;
-                    if (qty > 0) kitTotals[kitName] = (kitTotals[kitName] || 0) + qty;
+                    if (qty > 0) {
+                        kitTotals[kitName] = (kitTotals[kitName] || 0) + qty;
+                    }
                 }
             });
+            
             const summaryDiv = document.getElementById('ordersSummary');
             summaryDiv.innerHTML = '';
+            
             for (const [kitName, total] of Object.entries(kitTotals)) {
                 const card = document.createElement('div');
                 card.style.cssText = 'background: white; padding: 15px; border-radius: 8px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1);';
@@ -1078,20 +1161,75 @@ v1.2.0 (2025-10-28)
                 `;
                 summaryDiv.appendChild(card);
             }
+            
             if (Object.keys(kitTotals).length === 0) {
                 summaryDiv.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">No active orders</div>';
             }
         }
         
+        function renderOrders() {
+            const tbody = document.getElementById('ordersTableBody');
+            tbody.innerHTML = '';
+            
+            const activeOrders = orders.filter(o => !o.shipped);
+            
+            activeOrders.forEach(order => {
+                let totalQty = 0;
+                const productList = [];
+                
+                for (const kitName of Object.keys(kits)) {
+                    const qty = order[kitName.toLowerCase()] || 0;
+                    if (qty > 0) {
+                        totalQty += qty;
+                        productList.push(`${qty}× ${kitName}`);
+                    }
+                }
+                
+                const productText = totalQty > 0 
+                    ? `${totalQty} item${totalQty > 1 ? 's' : ''} (${productList.join(', ')})`
+                    : 'No products';
+                
+                const ready = canFulfillOrder(order);
+                const orderNumber = order.shopifyOrderNumber || '-';
+                
+                let bgColor = '';
+                let statusText = '';
+                
+                if (order.paid && ready) {
+                    bgColor = '#d1fae5';
+                    statusText = '<span class="status-paid">✓ PAID & READY TO SHIP</span>';
+                } else if (order.paid) {
+                    bgColor = '#fef3c7';
+                    statusText = '<span class="status-paid awaiting">⚠ PAID - AWAITING STOCK</span>';
+                } else {
+                    bgColor = '#fee2e2';
+                    statusText = '<span class="status-unpaid">UNPAID</span>';
+                }
+                
+                const tr = document.createElement('tr');
+                tr.style.backgroundColor = bgColor;
+                tr.onclick = () => editOrder(order.id);
+                
+                tr.innerHTML = `
+                    <td><strong>${order.name}</strong></td>
+                    <td>${orderNumber}</td>
+                    <td>${productText}</td>
+                    <td>${statusText}</td>
+                `;
+                
+                tbody.appendChild(tr);
+            });
+            
+            renderOrdersSummary();
+        }
+        
         function renderInventory() {
             const tbody = document.getElementById('inventoryBody');
             tbody.innerHTML = '';
-            if (Object.keys(components).length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #999;">No components. Import CSV or add manually.</td></tr>';
-                return;
-            }
+            
             for (const [name, comp] of Object.entries(components)) {
                 let needed = 0;
+                
                 const paidOrders = orders.filter(o => o.paid && !o.shipped);
                 paidOrders.forEach(order => {
                     for (const [kitName, kit] of Object.entries(kits)) {
@@ -1100,8 +1238,11 @@ v1.2.0 (2025-10-28)
                         needed += kitQty * componentQty;
                     }
                 });
+                
                 const totalAvailable = comp.onHand + comp.onOrder;
-                let statusClass = 'inventory-ok', statusText = '✓ OK', onHandClass = 'onhand-ok';
+                let statusClass = 'inventory-ok', statusText = '✓ OK';
+                let onHandClass = 'onhand-ok';
+                
                 if (comp.onHand < needed) {
                     if (totalAvailable >= needed) {
                         statusClass = 'inventory-low';
@@ -1113,6 +1254,7 @@ v1.2.0 (2025-10-28)
                         onHandClass = 'onhand-critical';
                     }
                 }
+                
                 const row = document.createElement('tr');
                 row.onclick = () => editComponent(name);
                 row.innerHTML = `
@@ -1128,32 +1270,10 @@ v1.2.0 (2025-10-28)
             }
         }
         
-        function renderKits() {
-            const tbody = document.getElementById('kitsBody');
-            tbody.innerHTML = '';
-            if (Object.keys(kits).length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">No kits. Import CSV or add manually.</td></tr>';
-                return;
-            }
-            for (const [kitName, kit] of Object.entries(kits)) {
-                const canMake = calculateKitsCanMake(kitName);
-                const componentsList = Object.entries(kit.components).map(([comp, qty]) => `${qty}× ${comp}`).join(', ');
-                const row = document.createElement('tr');
-                row.onclick = () => editKit(kitName);
-                row.innerHTML = `
-                    <td><strong>${kitName}</strong></td>
-                    <td>${componentsList}</td>
-                    <td>${(kit.cost || 0).toFixed(2)}</td>
-                    <td>${(kit.price || 0).toFixed(2)}</td>
-                    <td><strong>${canMake}</strong></td>
-                `;
-                tbody.appendChild(row);
-            }
-        }
-        
         function calculateKitsCanMake(kitName) {
             const kit = kits[kitName];
             if (!kit) return 0;
+            
             let minCanMake = Infinity;
             for (const [componentName, qtyNeeded] of Object.entries(kit.components)) {
                 const comp = components[componentName];
@@ -1164,6 +1284,29 @@ v1.2.0 (2025-10-28)
             return minCanMake === Infinity ? 0 : minCanMake;
         }
         
+        function renderKits() {
+            const tbody = document.getElementById('kitsBody');
+            tbody.innerHTML = '';
+            
+            for (const [kitName, kit] of Object.entries(kits)) {
+                const canMake = calculateKitsCanMake(kitName);
+                const componentsList = Object.entries(kit.components)
+                    .map(([comp, qty]) => `${qty}× ${comp}`)
+                    .join(', ');
+                
+                const row = document.createElement('tr');
+                row.onclick = () => editKit(kitName);
+                row.innerHTML = `
+                    <td><strong>${kitName}</strong></td>
+                    <td>${componentsList}</td>
+                    <td>$${(kit.cost || 0).toFixed(2)}</td>
+                    <td>$${(kit.price || 0).toFixed(2)}</td>
+                    <td><strong>${canMake}</strong></td>
+                `;
+                tbody.appendChild(row);
+            }
+        }
+        
         function renderShippedOrders() {
             const tbody = document.getElementById('shippedBody');
             tbody.innerHTML = '';
@@ -1172,8 +1315,9 @@ v1.2.0 (2025-10-28)
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">No shipped orders yet</td></tr>';
                 return;
             }
-            shippedOrders.forEach(order => {
-                let amount = 0, items = [];
+            shippedOrders.forEach((order) => {
+                let amount = 0;
+                const items = [];
                 for (const [kitName, kit] of Object.entries(kits)) {
                     const qty = order[kitName.toLowerCase()] || 0;
                     if (qty > 0) {
@@ -1181,8 +1325,8 @@ v1.2.0 (2025-10-28)
                         amount += qty * (kit.price || 0);
                     }
                 }
+                
                 const row = document.createElement('tr');
-                row.onclick = () => editOrder(order.id);
                 row.innerHTML = `
                     <td><strong>${order.name}</strong></td>
                     <td>${items.join(', ')}</td>
@@ -1194,25 +1338,27 @@ v1.2.0 (2025-10-28)
             });
         }
         
-        // Modal functions (simplified - add full implementations)
-        function openNewOrderModal() {
-            currentEditOrder = null;
-            document.getElementById('orderModalTitle').textContent = 'New Order';
-            document.getElementById('orderName').value = '';
-            document.getElementById('orderShopifyNumber').value = '';
-            document.getElementById('orderPaid').checked = false;
-            document.getElementById('orderShipped').checked = false;
-            document.getElementById('orderTracking').value = '';
-            document.getElementById('trackingGroup').style.display = 'none';
-            document.getElementById('deleteOrderZone').style.display = 'none';
-            const container = document.getElementById('orderKitsContainer');
-            container.innerHTML = '';
-            for (const kitName of Object.keys(kits)) {
-                const div = document.createElement('div');
-                div.className = 'form-group';
-                div.innerHTML = `<label>${kitName}</label><input type="number" id="order${kitName}" value="0" min="0">`;
-                container.appendChild(div);
-            }
+        // Order Modal Functions
+        function showNewOrderModal() {
+            currentEditOrderId = null;
+            document.getElementById('orderModalTitle').textContent = 'Add New Order';
+            document.getElementById('orderModalSaveBtn').textContent = 'Add Order';
+            document.getElementById('orderModalSaveBtn').onclick = addNewOrder;
+            document.getElementById('orderModalDeleteBtn').style.display = 'none';
+            document.getElementById('orderModalShipBtn').style.display = 'none';
+            document.getElementById('newOrderName').value = '';
+            document.getElementById('newOrderPaid').checked = false;
+            
+            const summaryView = document.getElementById('orderSummaryView');
+            if (summaryView) summaryView.style.display = 'block';
+            
+            const kitsContainer = document.getElementById('orderKitsContainer');
+            if (kitsContainer) kitsContainer.style.display = 'none';
+            
+            renderOrderKitsInputs({});
+            updateOrderSummary();
+            renderOrderProductsList();
+            
             document.getElementById('newOrderModal').classList.add('active');
         }
         
@@ -1220,535 +1366,708 @@ v1.2.0 (2025-10-28)
             document.getElementById('newOrderModal').classList.remove('active');
         }
         
-        function saveOrder() {
-            const name = document.getElementById('orderName').value.trim();
-            if (!name) { alert('Please enter a customer name'); return; }
-            const order = currentEditOrder ? orders.find(o => o.id === currentEditOrder) : { id: nextOrderId++ };
-            order.name = name;
-            order.shopifyOrderNumber = document.getElementById('orderShopifyNumber').value.trim();
-            order.paid = document.getElementById('orderPaid').checked;
-            order.shipped = document.getElementById('orderShipped').checked;
-            order.tracking = document.getElementById('orderTracking').value.trim();
-            for (const kitName of Object.keys(kits)) {
-                order[kitName.toLowerCase()] = parseInt(document.getElementById(`order${kitName}`).value) || 0;
+        function renderOrderKitsInputs(orderData = {}) {
+            const container = document.getElementById('orderKitsContainer');
+            container.innerHTML = '';
+            
+            for (const [kitName] of Object.entries(kits)) {
+                const qty = orderData[kitName.toLowerCase()] || 0;
+                const formGroup = document.createElement('div');
+                formGroup.className = 'form-group';
+                formGroup.innerHTML = `
+                    <label>${kitName} Quantity</label>
+                    <input type="number" id="orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}" value="${qty}" min="0" onchange="updateOrderSummary()">
+                `;
+                container.appendChild(formGroup);
             }
-            if (!currentEditOrder) orders.push(order);
+        }
+        
+        function updateOrderSummary() {
+            let totalAmount = 0;
+            const selectedKits = [];
+            const componentsNeeded = {};
+            
+            for (const [kitName, kit] of Object.entries(kits)) {
+                const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
+                const qty = parseInt(input?.value) || 0;
+                
+                if (qty > 0) {
+                    totalAmount += qty * (kit.price || 0);
+                    selectedKits.push({ name: kitName, qty, price: kit.price });
+                    
+                    for (const [componentName, componentQty] of Object.entries(kit.components)) {
+                        componentsNeeded[componentName] = (componentsNeeded[componentName] || 0) + (componentQty * qty);
+                    }
+                }
+            }
+            
+            const summaryContent = document.getElementById('orderSummaryContent');
+            if (!summaryContent) return;
+            
+            if (selectedKits.length === 0) {
+                summaryContent.innerHTML = '<div style="color: #999;">No products selected</div>';
+            } else {
+                summaryContent.innerHTML = selectedKits.map(kit => `
+                    <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb;">
+                        <span>${kit.qty}× ${kit.name}</span>
+                        <span style="color: #667eea; font-weight: 600;">$${(kit.qty * kit.price).toFixed(2)}</span>
+                    </div>
+                `).join('');
+            }
+            
+            const totalElement = document.getElementById('orderSummaryTotal');
+            if (totalElement) {
+                totalElement.textContent = `$${totalAmount.toFixed(2)}`;
+            }
+            
+            const componentsDiv = document.getElementById('orderComponentsNeeded');
+            if (componentsDiv) {
+                if (Object.keys(componentsNeeded).length === 0) {
+                    componentsDiv.innerHTML = '<div style="color: #999;">No components needed</div>';
+                } else {
+                    componentsDiv.innerHTML = Object.entries(componentsNeeded).map(([name, qty]) => `
+                        <div style="padding: 6px 0; border-bottom: 1px solid #e5e7eb;">
+                            <span style="font-weight: 600;">${qty}×</span> ${name}
+                        </div>
+                    `).join('');
+                }
+            }
+            
+            const statusDiv = document.getElementById('orderInventoryStatus');
+            if (statusDiv) {
+                if (Object.keys(componentsNeeded).length === 0) {
+                    statusDiv.innerHTML = '<div style="color: #999;">-</div>';
+                } else {
+                    let allAvailable = true;
+                    const statusHTML = Object.entries(componentsNeeded).map(([name, needed]) => {
+                        const comp = components[name];
+                        if (!comp) {
+                            allAvailable = false;
+                            return `<div style="padding: 6px 0; color: #ef4444;">✗ ${name} - Component not found</div>`;
+                        }
+                        
+                        const available = comp.onHand >= needed;
+                        if (!available) allAvailable = false;
+                        
+                        return `
+                            <div style="padding: 6px 0; display: flex; justify-content: space-between;">
+                                <span>${name}</span>
+                                <span style="color: ${available ? '#10b981' : '#ef4444'}; font-weight: 600;">
+                                    ${available ? '✓' : '✗'} ${comp.onHand} / ${needed} available
+                                </span>
+                            </div>
+                        `;
+                    }).join('');
+                    
+                    statusDiv.innerHTML = statusHTML;
+                    
+                    if (allAvailable && Object.keys(componentsNeeded).length > 0) {
+                        statusDiv.innerHTML += '<div style="margin-top: 10px; padding: 10px; background: #d1fae5; color: #065f46; border-radius: 6px; font-weight: 600; text-align: center;">✓ All components available - Ready to build!</div>';
+                    } else if (Object.keys(componentsNeeded).length > 0) {
+                        statusDiv.innerHTML += '<div style="margin-top: 10px; padding: 10px; background: #fee2e2; color: #991b1b; border-radius: 6px; font-weight: 600; text-align: center;">⚠ Missing components - Cannot fulfill yet</div>';
+                    }
+                }
+            }
+        }
+        
+        function renderOrderProductsList() {
+            const container = document.getElementById('orderProductsList');
+            if (!container) return;
+            
+            container.innerHTML = '';
+            
+            let hasProducts = false;
+            for (const [kitName] of Object.entries(kits)) {
+                const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
+                if (!input) continue;
+                
+                const qty = parseInt(input.value) || 0;
+                
+                if (qty > 0) {
+                    hasProducts = true;
+                    const productRow = document.createElement('div');
+                    productRow.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 12px; background: #f8f9fa; border-radius: 6px; margin-bottom: 8px;';
+                    productRow.innerHTML = `
+                        <div style="flex: 1;">
+                            <strong>${kitName}</strong>
+                            <div style="font-size: 12px; color: #666; margin-top: 4px;">
+                                <input type="number" value="${qty}" min="1" style="width: 60px; padding: 4px; border: 2px solid #e5e7eb; border-radius: 4px;" onchange="updateProductQuantity('${kitName}', this.value)"> units
+                            </div>
+                        </div>
+                        <button class="btn btn-small btn-danger" onclick="removeProductFromOrder('${kitName}')">Remove</button>
+                    `;
+                    container.appendChild(productRow);
+                }
+            }
+            
+            if (!hasProducts) {
+                container.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">No products in this order. Click "+ Add Product" to add one.</div>';
+            }
+        }
+        
+        function showAddProductToOrder() {
+            const availableProducts = [];
+            for (const [kitName] of Object.entries(kits)) {
+                const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
+                const qty = parseInt(input?.value) || 0;
+                if (qty === 0) {
+                    availableProducts.push(kitName);
+                }
+            }
+            
+            if (availableProducts.length === 0) {
+                alert('All products are already in this order!');
+                return;
+            }
+            
+            const product = prompt(`Select product to add:\n${availableProducts.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nEnter product name:`);
+            
+            if (product && availableProducts.some(p => p.toLowerCase() === product.toLowerCase())) {
+                const kitName = availableProducts.find(p => p.toLowerCase() === product.toLowerCase());
+                const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
+                if (input) {
+                    input.value = '1';
+                    updateOrderSummary();
+                    renderOrderProductsList();
+                }
+            } else if (product) {
+                alert('Product not found. Please enter an exact product name.');
+            }
+        }
+        
+        function updateProductQuantity(kitName, newQty) {
+            const qty = parseInt(newQty) || 0;
+            const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
+            if (input) {
+                input.value = qty;
+                updateOrderSummary();
+                
+                if (qty === 0) {
+                    renderOrderProductsList();
+                }
+            }
+        }
+        
+        function removeProductFromOrder(kitName) {
+            const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
+            if (input) {
+                input.value = '0';
+                updateOrderSummary();
+                renderOrderProductsList();
+            }
+        }
+        
+        function addNewOrder() {
+            const name = document.getElementById('newOrderName').value.trim();
+            const paid = document.getElementById('newOrderPaid').checked;
+            
+            if (!name) { 
+                alert('Please enter a customer name'); 
+                return; 
+            }
+            
+            const newOrder = { 
+                id: nextOrderId++, 
+                name, 
+                paid, 
+                shipped: false, 
+                tracking: "" 
+            };
+            
+            let hasAnyQuantity = false;
+            for (const kitName of Object.keys(kits)) {
+                const input = document.getElementById(`orderKit_${kitName.replace(/[^a-zA-Z0-9]/g, '_')}`);
+                const qty = parseInt(input?.value) || 0;
+                newOrder[kitName.toLowerCase()] = qty;
+                if (qty > 0) hasAnyQuantity = true;
+            }
+            
+            if (!hasAnyQuantity) { 
+                alert('Please select at least one product'); 
+                return; 
+            }
+            
+            orders.push(newOrder);
+            closeNewOrderModal();
             saveToLocalStorage();
             syncToFirebase();
-            closeNewOrderModal();
             renderAll();
-            showToast('Order saved');
+            showToast('Order added');
         }
         
         function editOrder(orderId) {
             const order = orders.find(o => o.id === orderId);
             if (!order) return;
-            currentEditOrder = orderId;
-            document.getElementById('orderModalTitle').textContent = 'Edit Order';
-            document.getElementById('orderName').value = order.name;
-            document.getElementById('orderShopifyNumber').value = order.shopifyOrderNumber || '';
-            document.getElementById('orderPaid').checked = order.paid;
-            document.getElementById('orderShipped').checked = order.shipped;
-            document.getElementById('orderTracking').value = order.tracking || '';
-            document.getElementById('trackingGroup').style.display = order.shipped ? 'block' : 'none';
-            document.getElementById('deleteOrderZone').style.display = 'block';
-            const container = document.getElementById('orderKitsContainer');
-            container.innerHTML = '';
+            
+            currentEditOrderId = orderId;
+            document.getElementById('orderModalTitle').textContent = 'Edit Order - ' + order.name;
+            document.getElementById('newOrderName').value = order.name;
+            
+            const orderData = {};
             for (const kitName of Object.keys(kits)) {
-                const div = document.createElement('div');
-                div.className = 'form-group';
-                div.innerHTML = `<label>${kitName}</label><input type="number" id="order${kitName}" value="${order[kitName.toLowerCase()] || 0}" min="0">`;
-                container.appendChild(div);
+                orderData[kitName.toLowerCase()] = order[kitName.toLowerCase()] || 0;
             }
+            
+            document.getElementById('orderKitsContainer').style.display = 'none';
+            
+            renderOrderKitsInputs(orderData);
+            
+            document.getElementById('newOrderPaid').checked = order.paid;
+            
+            document.getElementById('orderSummaryView').style.display = 'block';
+            updateOrderSummary();
+            renderOrderProductsList();
+            
+            document.getElementById('orderModalSaveBtn').textContent = 'Save Changes';
+            document.getElementById('orderModalSaveBtn').onclick = saveOrderEdit;
+            document.getElementById('orderModalDeleteBtn').style.display = 'inline-block';
+            
+            const ready = canFulfillOrder(order);
+            if (order.paid && ready) {
+                document.getElementById('orderModalShipBtn').style.display = 'inline-block';
+            } else {
+                document.getElementById('orderModalShipBtn').style.display = 'none';
+            }
+            
             document.getElementById('newOrderModal').classList.add('active');
         }
         
-        function deleteCurrentOrder() {
-            if (!currentEditOrder || !confirm('Delete this order?')) return;
-            orders = orders.filter(o => o.id !== currentEditOrder);
+        function saveOrderEdit() {
+            if (!currentEditOrderId) return;
+            
+            const order = orders.find(o => o.id === currentEditOrderId);
+            if (!order) return;
+            
+            order.name = document.getElementById('newOrderName').value.trim();
+            order.paid = document.getElementById('newOrderPaid').checked;
+            
+            for (const kitName of Object.keys(kits)) {
+                const input = document.getElementById('orderKit_' + kitName.replace(/[^a-zA-Z0-9]/g, '_'));
+                order[kitName.toLowerCase()] = parseInt(input.value) || 0;
+            }
+            
+            closeNewOrderModal();
             saveToLocalStorage();
             syncToFirebase();
+            renderAll();
+            showToast('Order updated');
+        }
+        
+        function deleteCurrentOrder() {
+            if (!currentEditOrderId) return;
+            if (!confirm('Are you sure you want to delete this order?')) return;
+            
+            const index = orders.findIndex(o => o.id === currentEditOrderId);
+            if (index > -1) {
+                orders.splice(index, 1);
+            }
+            
             closeNewOrderModal();
+            saveToLocalStorage();
+            syncToFirebase();
             renderAll();
             showToast('Order deleted');
+        }
+        
+        function showShipOrderModalFromEdit() {
+            if (!currentEditOrderId) return;
+            
+            currentShipOrderId = currentEditOrderId;
+            const order = orders.find(o => o.id === currentShipOrderId);
+            if (!order) return;
+            
+            closeNewOrderModal();
+            
+            document.getElementById('shipOrderCustomer').textContent = `Shipping order for ${order.name}`;
+            document.getElementById('shipOrderTracking').value = order.tracking || '';
+            document.getElementById('shipOrderModal').classList.add('active');
+        }
+        
+        function closeShipOrderModal() {
+            document.getElementById('shipOrderModal').classList.remove('active');
+        }
+        
+        function confirmShipOrder() {
+            if (!currentShipOrderId) return;
+            
+            const order = orders.find(o => o.id === currentShipOrderId);
+            if (!order) return;
+            
+            const tracking = document.getElementById('shipOrderTracking').value.trim();
+            order.shipped = true;
+            order.tracking = tracking;
+            
+            closeShipOrderModal();
+            saveToLocalStorage();
+            syncToFirebase();
+            renderAll();
+            showToast('Order shipped!');
         }
         
         function unshipOrder(orderId) {
             const order = orders.find(o => o.id === orderId);
             if (!order) return;
+            
             order.shipped = false;
             order.tracking = '';
+            
             saveToLocalStorage();
             syncToFirebase();
             renderAll();
             showToast('Order unshipped');
         }
         
-        document.getElementById('orderShipped').addEventListener('change', function() {
-            document.getElementById('trackingGroup').style.display = this.checked ? 'block' : 'none';
-        });
-        
-        // Component modal functions
-        function openNewComponentModal() {
+        // Component Modal Functions
+        function showNewComponentModal() {
             currentEditComponent = null;
-            document.getElementById('componentModalTitle').textContent = 'New Component';
-            document.getElementById('componentName').value = '';
-            document.getElementById('componentName').disabled = false;
-            document.getElementById('componentOnHand').value = '0';
-            document.getElementById('componentOnOrder').value = '0';
-            document.getElementById('componentETA').value = '';
-            document.getElementById('deleteComponentZone').style.display = 'none';
-            document.getElementById('newComponentModal').classList.add('active');
+            document.getElementById('componentModalTitle').textContent = 'Add New Component';
+            document.getElementById('editComponentName').value = '';
+            document.getElementById('editComponentName').disabled = false;
+            document.getElementById('editComponentOnHand').value = '0';
+            document.getElementById('editComponentOnOrder').value = '0';
+            document.getElementById('editComponentEta').value = '';
+            document.getElementById('editComponentCostType').value = 'piece';
+            document.getElementById('editComponentCostPiece').value = '';
+            document.getElementById('editComponentBoxSize').value = '';
+            document.getElementById('editComponentCostBox').value = '';
+            toggleCostFields();
+            document.getElementById('componentDeleteBtn').style.display = 'none';
+            document.getElementById('editComponentModal').classList.add('active');
         }
         
-        function closeNewComponentModal() {
-            document.getElementById('newComponentModal').classList.remove('active');
+        function closeEditComponentModal() {
+            document.getElementById('editComponentModal').classList.remove('active');
+            currentEditComponent = null;
         }
         
-        function saveComponent() {
-            const name = document.getElementById('componentName').value.trim();
-            if (!name) { alert('Please enter a component name'); return; }
-            if (!currentEditComponent && components[name]) { alert('Component already exists'); return; }
-            if (currentEditComponent && currentEditComponent !== name) delete components[currentEditComponent];
-            components[name] = {
-                onHand: parseInt(document.getElementById('componentOnHand').value) || 0,
-                onOrder: parseInt(document.getElementById('componentOnOrder').value) || 0,
-                eta: document.getElementById('componentETA').value.trim()
-            };
+        function toggleCostFields() {
+            const costType = document.getElementById('editComponentCostType').value;
+            const pieceCostGroup = document.getElementById('pieceCostGroup');
+            const boxCostGroup = document.getElementById('boxCostGroup');
+            
+            if (costType === 'box') {
+                pieceCostGroup.style.display = 'none';
+                boxCostGroup.style.display = 'block';
+            } else {
+                pieceCostGroup.style.display = 'block';
+                boxCostGroup.style.display = 'none';
+            }
+        }
+        
+        function saveComponentEdit() {
+            const name = document.getElementById('editComponentName').value.trim();
+            const onHand = parseInt(document.getElementById('editComponentOnHand').value) || 0;
+            const onOrder = parseInt(document.getElementById('editComponentOnOrder').value) || 0;
+            const eta = document.getElementById('editComponentEta').value.trim();
+            const costType = document.getElementById('editComponentCostType').value;
+            
+            if (!name) {
+                alert('Please enter a component name');
+                return;
+            }
+            
+            let costData = { costType };
+            if (costType === 'piece') {
+                const costPerPiece = parseFloat(document.getElementById('editComponentCostPiece').value) || 0;
+                costData.costPerPiece = costPerPiece;
+            } else {
+                const boxSize = parseInt(document.getElementById('editComponentBoxSize').value) || 0;
+                const costPerBox = parseFloat(document.getElementById('editComponentCostBox').value) || 0;
+                if (boxSize <= 0) {
+                    alert('Please enter a valid box/pack size');
+                    return;
+                }
+                costData.boxSize = boxSize;
+                costData.costPerBox = costPerBox;
+            }
+            
+            if (currentEditComponent && currentEditComponent !== name) {
+                alert('Cannot rename components. Please delete and create a new one.');
+                return;
+            }
+            
+            if (!currentEditComponent) {
+                components[name] = {
+                    onHand,
+                    onOrder,
+                    eta,
+                    ...costData
+                };
+            } else {
+                const comp = components[currentEditComponent];
+                comp.onHand = onHand;
+                comp.onOrder = onOrder;
+                comp.eta = eta;
+                Object.assign(comp, costData);
+            }
+            
+            closeEditComponentModal();
             saveToLocalStorage();
             syncToFirebase();
-            closeNewComponentModal();
-            renderAll();
+            renderInventory();
+            renderOrders();
             showToast('Component saved');
         }
         
-        function editComponent(name) {
-            const comp = components[name];
-            if (!comp) return;
-            currentEditComponent = name;
-            document.getElementById('componentModalTitle').textContent = 'Edit Component';
-            document.getElementById('componentName').value = name;
-            document.getElementById('componentName').disabled = true;
-            document.getElementById('componentOnHand').value = comp.onHand;
-            document.getElementById('componentOnOrder').value = comp.onOrder;
-            document.getElementById('componentETA').value = comp.eta;
-            document.getElementById('deleteComponentZone').style.display = 'block';
-            document.getElementById('newComponentModal').classList.add('active');
+        function editComponent(componentName) {
+            currentEditComponent = componentName;
+            const comp = components[componentName];
+            
+            document.getElementById('componentModalTitle').textContent = `Edit ${componentName}`;
+            document.getElementById('editComponentName').value = componentName;
+            document.getElementById('editComponentName').disabled = true;
+            document.getElementById('editComponentOnHand').value = comp.onHand;
+            document.getElementById('editComponentOnOrder').value = comp.onOrder;
+            document.getElementById('editComponentEta').value = comp.eta;
+            
+            document.getElementById('editComponentCostType').value = comp.costType || 'piece';
+            if (comp.costType === 'box') {
+                document.getElementById('editComponentBoxSize').value = comp.boxSize || '';
+                document.getElementById('editComponentCostBox').value = comp.costPerBox || '';
+                document.getElementById('editComponentCostPiece').value = '';
+            } else {
+                document.getElementById('editComponentCostPiece').value = comp.costPerPiece || '';
+                document.getElementById('editComponentBoxSize').value = '';
+                document.getElementById('editComponentCostBox').value = '';
+            }
+            toggleCostFields();
+            
+            document.getElementById('componentDeleteBtn').style.display = 'inline-block';
+            document.getElementById('editComponentModal').classList.add('active');
         }
         
         function deleteCurrentComponent() {
-            if (!currentEditComponent || !confirm(`Delete ${currentEditComponent}?`)) return;
+            if (!currentEditComponent) return;
+            if (!confirm(`Are you sure you want to delete ${currentEditComponent}?`)) return;
+            
+            for (const [kitName, kit] of Object.entries(kits)) {
+                if (kit.components[currentEditComponent]) {
+                    alert(`Cannot delete ${currentEditComponent} because it's used in the ${kitName} kit.`);
+                    return;
+                }
+            }
+            
             delete components[currentEditComponent];
+            
+            closeEditComponentModal();
             saveToLocalStorage();
             syncToFirebase();
-            closeNewComponentModal();
             renderAll();
             showToast('Component deleted');
         }
         
-        // Kit modal functions
-        function openNewKitModal() {
+        // Kit Modal Functions
+        function showNewKitModal() {
             currentEditKit = null;
-            document.getElementById('kitModalTitle').textContent = 'New Kit';
-            document.getElementById('kitName').value = '';
-            document.getElementById('kitName').disabled = false;
-            document.getElementById('kitCost').value = '0';
-            document.getElementById('kitPrice').value = '0';
-            document.getElementById('kitComponentsContainer').innerHTML = '';
-            document.getElementById('deleteKitZone').style.display = 'none';
-            addKitComponent();
+            document.getElementById('kitModalTitle').textContent = 'Add New Kit';
+            document.getElementById('newKitName').value = '';
+            document.getElementById('newKitName').disabled = false;
+            document.getElementById('newKitCost').value = '';
+            document.getElementById('newKitPrice').value = '';
+            document.getElementById('kitModalSaveBtn').textContent = 'Add Kit';
+            document.getElementById('kitModalSaveBtn').onclick = addNewKit;
+            document.getElementById('kitModalDeleteBtn').style.display = 'none';
+            
+            renderKitComponentsList({});
             document.getElementById('newKitModal').classList.add('active');
         }
         
         function closeNewKitModal() {
             document.getElementById('newKitModal').classList.remove('active');
+            currentEditKit = null;
         }
         
-        function addKitComponent() {
-            const container = document.getElementById('kitComponentsContainer');
-            const div = document.createElement('div');
-            div.style.display = 'flex';
-            div.style.gap = '10px';
-            div.style.marginBottom = '10px';
-            const select = document.createElement('select');
-            select.style.flex = '2';
-            select.innerHTML = '<option value="">Select Component</option>';
-            for (const name of Object.keys(components)) {
-                select.innerHTML += `<option value="${name}">${name}</option>`;
+        function renderKitComponentsList(selectedComponents) {
+            const container = document.getElementById('kitComponentsList');
+            container.innerHTML = '';
+            
+            for (const [componentName] of Object.entries(components)) {
+                const qty = selectedComponents[componentName] || 0;
+                const div = document.createElement('div');
+                div.className = 'component-checkbox';
+                div.innerHTML = `
+                    <input type="checkbox" id="kit_${componentName.replace(/[^a-zA-Z0-9]/g, '_')}" ${qty > 0 ? 'checked' : ''} 
+                           onchange="toggleKitComponent('${componentName.replace(/'/g, "\\'")}')">
+                    <label for="kit_${componentName.replace(/[^a-zA-Z0-9]/g, '_')}" style="flex: 1;">${componentName}</label>
+                    <input type="number" id="qty_${componentName.replace(/[^a-zA-Z0-9]/g, '_')}" value="${qty}" min="1" 
+                           style="width: 60px;" placeholder="Qty">
+                `;
+                container.appendChild(div);
             }
-            const input = document.createElement('input');
-            input.type = 'number';
-            input.min = '1';
-            input.value = '1';
-            input.style.flex = '1';
-            const removeBtn = document.createElement('button');
-            removeBtn.className = 'btn btn-small btn-danger';
-            removeBtn.textContent = '×';
-            removeBtn.type = 'button';
-            removeBtn.onclick = () => div.remove();
-            div.appendChild(select);
-            div.appendChild(input);
-            div.appendChild(removeBtn);
-            container.appendChild(div);
         }
         
-        function saveKit() {
-            const name = document.getElementById('kitName').value.trim();
-            if (!name) { alert('Please enter a kit name'); return; }
-            if (!currentEditKit && kits[name]) { alert('Kit already exists'); return; }
-            const componentsObj = {};
-            const container = document.getElementById('kitComponentsContainer');
-            container.querySelectorAll('div').forEach(div => {
-                const select = div.querySelector('select');
-                const input = div.querySelector('input[type="number"]');
-                const compName = select?.value;
-                const qty = parseInt(input?.value) || 1;
-                if (compName) componentsObj[compName] = qty;
-            });
-            if (Object.keys(componentsObj).length === 0) { alert('Add at least one component'); return; }
-            if (currentEditKit && currentEditKit !== name) delete kits[currentEditKit];
+        function toggleKitComponent(componentName) {
+            const safeId = componentName.replace(/[^a-zA-Z0-9]/g, '_');
+            const checkbox = document.getElementById(`kit_${safeId}`);
+            const qtyInput = document.getElementById(`qty_${safeId}`);
+            if (!checkbox.checked) {
+                qtyInput.value = '0';
+            } else if (qtyInput.value === '0' || qtyInput.value === '') {
+                qtyInput.value = '1';
+            }
+        }
+        
+        function calculateKitCost(kitComponents) {
+            let totalCost = 0;
+            for (const [componentName, qty] of Object.entries(kitComponents)) {
+                const comp = components[componentName];
+                if (!comp) continue;
+                
+                if (comp.costType === 'piece') {
+                    totalCost += (comp.costPerPiece || 0) * qty;
+                } else if (comp.costType === 'box') {
+                    const costPerPiece = (comp.costPerBox || 0) / (comp.boxSize || 1);
+                    totalCost += costPerPiece * qty;
+                }
+            }
+            return totalCost;
+        }
+        
+        function addNewKit() {
+            const name = document.getElementById('newKitName').value.trim();
+            const cost = parseFloat(document.getElementById('newKitCost').value) || 0;
+            const price = parseFloat(document.getElementById('newKitPrice').value) || 0;
+            const selectedComponents = {};
+            
+            if (!name) {
+                alert('Please enter a kit name');
+                return;
+            }
+            
+            for (const [componentName] of Object.entries(components)) {
+                const safeId = componentName.replace(/[^a-zA-Z0-9]/g, '_');
+                const checkbox = document.getElementById(`kit_${safeId}`);
+                const qtyInput = document.getElementById(`qty_${safeId}`);
+                if (checkbox && checkbox.checked) {
+                    const qty = parseInt(qtyInput.value) || 1;
+                    selectedComponents[componentName] = qty;
+                }
+            }
+            
+            if (Object.keys(selectedComponents).length === 0) {
+                alert('Please select at least one component');
+                return;
+            }
+            
+            const calculatedCost = calculateKitCost(selectedComponents);
+            
             kits[name] = {
-                cost: parseFloat(document.getElementById('kitCost').value) || 0,
-                price: parseFloat(document.getElementById('kitPrice').value) || 0,
-                components: componentsObj
+                cost: cost > 0 ? cost : calculatedCost,
+                price: price,
+                components: selectedComponents
             };
+            
+            closeNewKitModal();
             saveToLocalStorage();
             syncToFirebase();
-            closeNewKitModal();
-            renderAll();
-            showToast('Kit saved');
+            renderKits();
+            showToast('Kit added');
         }
         
         function editKit(kitName) {
             const kit = kits[kitName];
             if (!kit) return;
+            
             currentEditKit = kitName;
-            document.getElementById('kitModalTitle').textContent = 'Edit Kit';
-            document.getElementById('kitName').value = kitName;
-            document.getElementById('kitName').disabled = true;
-            document.getElementById('kitCost').value = kit.cost;
-            document.getElementById('kitPrice').value = kit.price;
-            document.getElementById('deleteKitZone').style.display = 'block';
-            const container = document.getElementById('kitComponentsContainer');
-            container.innerHTML = '';
-            for (const [compName, qty] of Object.entries(kit.components)) {
-                const div = document.createElement('div');
-                div.style.display = 'flex';
-                div.style.gap = '10px';
-                div.style.marginBottom = '10px';
-                const select = document.createElement('select');
-                select.style.flex = '2';
-                for (const name of Object.keys(components)) {
-                    const opt = document.createElement('option');
-                    opt.value = name;
-                    opt.textContent = name;
-                    if (name === compName) opt.selected = true;
-                    select.appendChild(opt);
-                }
-                const input = document.createElement('input');
-                input.type = 'number';
-                input.min = '1';
-                input.value = qty;
-                input.style.flex = '1';
-                const removeBtn = document.createElement('button');
-                removeBtn.className = 'btn btn-small btn-danger';
-                removeBtn.textContent = '×';
-                removeBtn.type = 'button';
-                removeBtn.onclick = () => div.remove();
-                div.appendChild(select);
-                div.appendChild(input);
-                div.appendChild(removeBtn);
-                container.appendChild(div);
-            }
+            const autoCalculatedCost = calculateKitCost(kit.components);
+            
+            document.getElementById('kitModalTitle').textContent = `Edit ${kitName} Kit`;
+            document.getElementById('newKitName').value = kitName;
+            document.getElementById('newKitName').disabled = true;
+            document.getElementById('newKitCost').value = kit.cost || autoCalculatedCost.toFixed(2);
+            document.getElementById('newKitCost').placeholder = `Auto: ${autoCalculatedCost.toFixed(2)}`;
+            document.getElementById('newKitPrice').value = kit.price || '';
+            document.getElementById('kitModalSaveBtn').textContent = 'Save Changes';
+            document.getElementById('kitModalSaveBtn').onclick = saveKitEdit;
+            document.getElementById('kitModalDeleteBtn').style.display = 'inline-block';
+            
+            renderKitComponentsList(kit.components);
             document.getElementById('newKitModal').classList.add('active');
         }
         
-        function deleteCurrentKit() {
-            if (!currentEditKit || !confirm(`Delete ${currentEditKit}?`)) return;
-            delete kits[currentEditKit];
+        function saveKitEdit() {
+            if (!currentEditKit) return;
+            
+            const kit = kits[currentEditKit];
+            const cost = parseFloat(document.getElementById('newKitCost').value) || 0;
+            const price = parseFloat(document.getElementById('newKitPrice').value) || 0;
+            const selectedComponents = {};
+            
+            for (const [componentName] of Object.entries(components)) {
+                const safeId = componentName.replace(/[^a-zA-Z0-9]/g, '_');
+                const checkbox = document.getElementById(`kit_${safeId}`);
+                const qtyInput = document.getElementById(`qty_${safeId}`);
+                if (checkbox && checkbox.checked) {
+                    const qty = parseInt(qtyInput.value) || 1;
+                    selectedComponents[componentName] = qty;
+                }
+            }
+            
+            if (Object.keys(selectedComponents).length === 0) {
+                alert('Please select at least one component');
+                return;
+            }
+            
+            const calculatedCost = calculateKitCost(selectedComponents);
+            
+            kit.cost = cost > 0 ? cost : calculatedCost;
+            kit.price = price;
+            kit.components = selectedComponents;
+            
+            closeNewKitModal();
             saveToLocalStorage();
             syncToFirebase();
+            renderKits();
+            showToast('Kit updated');
+        }
+        
+        function deleteCurrentKit() {
+            if (!currentEditKit) return;
+            if (!confirm(`Are you sure you want to delete the ${currentEditKit} kit?`)) return;
+            
+            delete kits[currentEditKit];
+            
             closeNewKitModal();
-            renderAll();
+            saveToLocalStorage();
+            syncToFirebase();
+            renderKits();
+            renderOrders();
             showToast('Kit deleted');
         }
         
-        // CSV Import/Export functions (simplified versions)
-        function importOrdersCSV(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            
-            const reader = new FileReader();
-            reader.onload = async function(e) {
-                try {
-                    const text = e.target.result;
-                    const lines = text.split('\n').filter(line => line.trim());
-                    if (lines.length < 2) { 
-                        alert('CSV file is empty or invalid'); 
-                        return; 
-                    }
-                    
-                    // Parse headers
-                    const headers = parseCSVLine(lines[0]);
-                    const nameIndex = headers.findIndex(h => h.toLowerCase() === 'name');
-                    const emailIndex = headers.findIndex(h => h.toLowerCase() === 'email');
-                    const financialStatusIndex = headers.findIndex(h => h.toLowerCase() === 'financial status');
-                    const fulfillmentStatusIndex = headers.findIndex(h => h.toLowerCase() === 'fulfillment status');
-                    const lineitemNameIndex = headers.findIndex(h => h.toLowerCase() === 'lineitem name');
-                    const lineitemQtyIndex = headers.findIndex(h => h.toLowerCase() === 'lineitem quantity');
-                    const billingNameIndex = headers.findIndex(h => h.toLowerCase() === 'billing name');
-                    
-                    // Check if this is a Shopify export (has specific columns)
-                    const isShopifyFormat = financialStatusIndex !== -1 && lineitemNameIndex !== -1;
-                    
-                    if (isShopifyFormat) {
-                        // Shopify format - group line items by order number
-                        const ordersMap = {};
-                        
-                        for (let i = 1; i < lines.length; i++) {
-                            const parts = parseCSVLine(lines[i]);
-                            const orderNumber = parts[nameIndex]?.trim() || '';
-                            
-                            if (!orderNumber || !orderNumber.startsWith('#')) continue;
-                            
-                            // Create or get existing order
-                            if (!ordersMap[orderNumber]) {
-                                const customerName = parts[billingNameIndex]?.trim() || parts[emailIndex]?.trim() || 'Unknown Customer';
-                                const isPaid = parts[financialStatusIndex]?.toLowerCase() === 'paid';
-                                const isShipped = parts[fulfillmentStatusIndex]?.toLowerCase() === 'fulfilled';
-                                
-                                ordersMap[orderNumber] = {
-                                    id: nextOrderId++,
-                                    name: customerName,
-                                    shopifyOrderNumber: orderNumber,
-                                    paid: isPaid,
-                                    shipped: isShipped,
-                                    tracking: '',
-                                    products: []
-                                };
-                            }
-                            
-                            // Add line item
-                            const lineitemName = parts[lineitemNameIndex]?.trim() || '';
-                            const lineitemQty = parseInt(parts[lineitemQtyIndex]) || 0;
-                            
-                            if (lineitemName && lineitemQty > 0) {
-                                ordersMap[orderNumber].products.push({
-                                    name: lineitemName,
-                                    quantity: lineitemQty
-                                });
-                            }
-                        }
-                        
-                        orders = orders.concat(Object.values(ordersMap));
-                        showToast(`Imported ${Object.keys(ordersMap).length} orders from Shopify`);
-                    } else {
-                        // Simple format - one order per line
-                        const simpleHeaders = lines[0].split(',').map(h => h.trim().toLowerCase());
-                        for (let i = 1; i < lines.length; i++) {
-                            const parts = lines[i].split(',').map(p => p.trim());
-                            const order = { id: nextOrderId++ };
-                            
-                            simpleHeaders.forEach((header, index) => {
-                                if (header === 'name' || header === 'customer name') {
-                                    order.name = parts[index];
-                                } else if (header.includes('shopify') || header.includes('order')) {
-                                    order.shopifyOrderNumber = parts[index];
-                                } else if (header === 'paid') {
-                                    order.paid = parts[index].toLowerCase() === 'true' || parts[index] === '1';
-                                } else if (header === 'shipped') {
-                                    order.shipped = parts[index].toLowerCase() === 'true' || parts[index] === '1';
-                                } else if (header === 'tracking') {
-                                    order.tracking = parts[index];
-                                } else {
-                                    const kitName = Object.keys(kits).find(k => k.toLowerCase() === header);
-                                    if (kitName) order[kitName.toLowerCase()] = parseInt(parts[index]) || 0;
-                                }
-                            });
-                            
-                            if (order.name) orders.push(order);
-                        }
-                        showToast(`Imported ${lines.length - 1} orders`);
-                    }
-                    
-                    saveToLocalStorage();
-                    await syncToFirebase();
-                    renderAll();
-                } catch (error) {
-                    console.error('Import error:', error);
-                    alert('Error importing CSV: ' + error.message);
-                }
-            };
-            reader.readAsText(file);
-            event.target.value = '';
-        }
-        
-        // Helper function to parse CSV lines properly (handles commas in quotes)
-        function parseCSVLine(line) {
-            const result = [];
-            let current = '';
-            let inQuotes = false;
-            
-            for (let i = 0; i < line.length; i++) {
-                const char = line[i];
-                
-                if (char === '"') {
-                    inQuotes = !inQuotes;
-                } else if (char === ',' && !inQuotes) {
-                    result.push(current.trim());
-                    current = '';
-                } else {
-                    current += char;
-                }
-            }
-            result.push(current.trim());
-            
-            return result;
-        }
-        
-        function exportOrdersCSV() {
-            const kitNames = Object.keys(kits);
-            let csv = 'Name,Shopify Order Number,' + kitNames.join(',') + ',Paid,Shipped,Tracking\n';
-            orders.forEach(order => {
-                const kitQtys = kitNames.map(k => order[k.toLowerCase()] || 0).join(',');
-                csv += `${order.name},${order.shopifyOrderNumber || ''},${kitQtys},${order.paid},${order.shipped},${order.tracking || ''}\n`;
-            });
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'orders.csv';
-            a.click();
-            URL.revokeObjectURL(url);
-        }
-        
-        function importInventoryCSV(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = async function(e) {
-                try {
-                    const text = e.target.result;
-                    const lines = text.split('\n').filter(line => line.trim());
-                    if (lines.length < 2) { alert('Invalid CSV'); return; }
-                    
-                    components = {};
-                    let importedCount = 0;
-                    
-                    for (let i = 1; i < lines.length; i++) {
-                        const parts = lines[i].split(',').map(p => p.trim());
-                        
-                        // Skip section headers or invalid rows
-                        if (parts.length < 4) continue;
-                        const name = parts[0];
-                        if (!name || name.startsWith('===') || name === 'Component') continue;
-                        
-                        // Stop if we hit another section
-                        if (name === 'Kit Name' || name.startsWith('===')) break;
-                        
-                        components[name] = {
-                            onHand: parseInt(parts[1]) || 0,
-                            onOrder: parseInt(parts[2]) || 0,
-                            eta: parts[3] || ''
-                        };
-                        importedCount++;
-                    }
-                    
-                    saveToLocalStorage();
-                    await syncToFirebase();
-                    renderAll();
-                    showToast(`Imported ${importedCount} components`);
-                } catch (error) {
-                    console.error('Import error:', error);
-                    alert('Error importing inventory: ' + error.message);
-                }
-            };
-            reader.readAsText(file);
-            event.target.value = '';
-        }
-        
-        function exportInventoryCSV() {
-            let csv = '=== COMPONENT INVENTORY ===\nComponent,On Hand,On Order,ETA,Needed\n';
-            const paidOrders = orders.filter(o => o.paid && !o.shipped);
-            const neededQuantities = {};
-            paidOrders.forEach(order => {
-                for (const [kitName, kit] of Object.entries(kits)) {
-                    const kitQty = order[kitName.toLowerCase()] || 0;
-                    if (kitQty > 0) {
-                        for (const [componentName, componentQty] of Object.entries(kit.components)) {
-                            neededQuantities[componentName] = (neededQuantities[componentName] || 0) + (kitQty * componentQty);
-                        }
-                    }
-                }
-            });
-            for (const [name, comp] of Object.entries(components)) {
-                csv += `${name},${comp.onHand},${comp.onOrder},${comp.eta},${neededQuantities[name] || 0}\n`;
-            }
-            csv += '\n=== KIT DEFINITIONS ===\nKit Name,Cost,Price,Components,Can Make\n';
-            for (const [kitName, kit] of Object.entries(kits)) {
-                const canMake = calculateKitsCanMake(kitName);
-                const componentsList = Object.entries(kit.components).map(([comp, qty]) => `${qty}× ${comp}`).join('; ');
-                csv += `${kitName},${kit.cost},${kit.price},"${componentsList}",${canMake}\n`;
-            }
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const date = new Date().toISOString().split('T')[0];
-            a.download = `inventory-${date}.csv`;
-            a.click();
-            URL.revokeObjectURL(url);
-            showToast('Inventory exported');
-        }
-        
-        function importKitsCSV(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = async function(e) {
-                const lines = e.target.result.split('\n').filter(line => line.trim());
-                if (lines.length < 2) { alert('Invalid CSV'); return; }
-                kits = {};
-                for (let i = 1; i < lines.length; i++) {
-                    const parts = lines[i].split(',').map(p => p.trim());
-                    if (parts.length >= 4) {
-                        const kitName = parts[0];
-                        const cost = parseFloat(parts[1]) || 0;
-                        const price = parseFloat(parts[2]) || 0;
-                        const componentsStr = parts[3].replace(/^"|"$/g, '');
-                        const componentsObj = {};
-                        if (componentsStr) {
-                            componentsStr.split(';').forEach(pair => {
-                                const [qty, name] = pair.split('×').map(s => s.trim());
-                                if (qty && name) componentsObj[name] = parseInt(qty);
-                            });
-                        }
-                        kits[kitName] = { cost, price, components: componentsObj };
-                    }
-                }
-                saveToLocalStorage();
-                await syncToFirebase();
-                renderAll();
-                showToast('Kits imported');
-            };
-            reader.readAsText(file);
-            event.target.value = '';
-        }
-        
-        function exportKitsCSV() {
-            let csv = 'Kit Name,Cost,Price,Components\n';
-            for (const [name, kit] of Object.entries(kits)) {
-                const componentsStr = Object.entries(kit.components).map(([comp, qty]) => `${qty}× ${comp}`).join('; ');
-                csv += `${name},${kit.cost},${kit.price},"${componentsStr}"\n`;
-            }
-            const blob = new Blob([csv], { type: 'text/csv' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'kits.csv';
-            a.click();
-            URL.revokeObjectURL(url);
-        }
+        // Initialize
+        window.showNewOrderModal = showNewOrderModal;
+        window.closeNewOrderModal = closeNewOrderModal;
+        window.addNewOrder = addNewOrder;
+        window.editOrder = editOrder;
+        window.saveOrderEdit = saveOrderEdit;
+        window.deleteCurrentOrder = deleteCurrentOrder;
+        window.showShipOrderModalFromEdit = showShipOrderModalFromEdit;
+        window.closeShipOrderModal = closeShipOrderModal;
+        window.confirmShipOrder = confirmShipOrder;
+        window.unshipOrder = unshipOrder;
+        window.showAddProductToOrder = showAddProductToOrder;
+        window.updateProductQuantity = updateProductQuantity;
+        window.removeProductFromOrder = removeProductFromOrder;
+        window.updateOrderSummary = updateOrderSummary;
+        window.showNewComponentModal = showNewComponentModal;
+        window.closeEditComponentModal = closeEditComponentModal;
+        window.toggleCostFields = toggleCostFields;
+        window.saveComponentEdit = saveComponentEdit;
+        window.editComponent = editComponent;
+        window.deleteCurrentComponent = deleteCurrentComponent;
+        window.showNewKitModal = showNewKitModal;
+        window.closeNewKitModal = closeNewKitModal;
+        window.toggleKitComponent = toggleKitComponent;
+        window.addNewKit = addNewKit;
+        window.editKit = editKit;
+        window.saveKitEdit = saveKitEdit;
+        window.deleteCurrentKit = deleteCurrentKit;
+        window.handleCSVImport = handleCSVImport;
+        window.handleLogin = handleLogin;
+        window.handleLogout = handleLogout;
+        window.manualSync = manualSync;
+        window.initializeApp = initializeApp;
     </script>
 </body>
 </html>

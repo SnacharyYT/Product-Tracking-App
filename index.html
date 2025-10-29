@@ -2,28 +2,31 @@
 <html lang="en">
 <!--
 Budget Build Club Inventory Manager
-Version: 2.0.3
+Version: 2.1.0
 Last Updated: 2025-10-29
 
 CHANGELOG:
+v2.1.0 (2025-10-29)
+- NEW: Inventory automatically deducts components when order is marked as shipped
+- NEW: Component metadata: source (Amazon, McMaster, SendCutSend, Other), part number with hyperlink
+- NEW: Component type field: Purchased vs Make (only S13 Cap is "Make" by default)
+- NEW: Shopping List section above components table, auto-updates when stock runs low
+- NEW: Shopping list sortable by vendor and component type (Purchased/Make)
+- NEW: CSV import now updates existing orders by Shopify order number (no duplicates)
+- IMPROVED: Component modal now includes source and part number fields
+- IMPROVED: Better organization of inventory section with shopping list
+
 v2.0.3 (2025-10-29)
 - CRITICAL FIX: Kits now properly load and display in Kits section
 - Fixed Firebase sync logic that was overwriting kits with empty data
 - Kits now auto-initialize to Firebase if missing
 - Added better debug logging for kit loading
 - Improved initialization order to prevent data loss
-
-v2.0.2 (2025-10-29)
-- CRITICAL FIX: Orders now properly display product data from Firebase
-- Added flexible kit name matching (handles "2jz intake adapter" vs "2JZ Intake Adapter")
-- Fixed all stats calculations to work with Firebase-stored orders
-- Made shipped orders clickable to view/edit details
-- Added getKitQtyFromOrder() helper for consistent kit quantity lookup
 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Budget Build Club Inventory Manager v2.0.3</title>
+    <title>Budget Build Club Inventory Manager v2.1.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -212,6 +215,12 @@ v2.0.2 (2025-10-29)
             padding-bottom: 10px;
         }
         
+        .section h3 {
+            font-size: 18px;
+            margin: 20px 0 10px 0;
+            color: #555;
+        }
+        
         .btn {
             background: #667eea;
             color: white;
@@ -261,6 +270,7 @@ v2.0.2 (2025-10-29)
             border-radius: 8px;
             overflow: hidden;
             box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
         }
         
         th {
@@ -272,6 +282,27 @@ v2.0.2 (2025-10-29)
             text-transform: uppercase;
             font-size: 12px;
             letter-spacing: 0.5px;
+            cursor: pointer;
+            user-select: none;
+        }
+        
+        th:hover {
+            background: #5568d3;
+        }
+        
+        th.sortable::after {
+            content: ' â†•';
+            opacity: 0.5;
+        }
+        
+        th.sorted-asc::after {
+            content: ' â†'';
+            opacity: 1;
+        }
+        
+        th.sorted-desc::after {
+            content: ' â†"';
+            opacity: 1;
         }
         
         td {
@@ -303,6 +334,58 @@ v2.0.2 (2025-10-29)
         .inventory-ok { color: #10b981; font-weight: bold; }
         .inventory-low { color: #f59e0b; font-weight: bold; }
         .inventory-critical { color: #ef4444; font-weight: bold; }
+        
+        .type-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .type-purchased {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        
+        .type-make {
+            background: #fce7f3;
+            color: #9f1239;
+        }
+        
+        .shopping-list-alert {
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .shopping-list-alert h4 {
+            color: #92400e;
+            margin-bottom: 10px;
+            font-size: 16px;
+        }
+        
+        .shopping-list-empty {
+            background: #d1fae5;
+            border-left: 4px solid #10b981;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            color: #065f46;
+        }
+        
+        .part-link {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .part-link:hover {
+            text-decoration: underline;
+        }
         
         .modal {
             display: none;
@@ -396,6 +479,26 @@ v2.0.2 (2025-10-29)
             transform: translateY(0);
             opacity: 1;
         }
+        
+        .sort-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+        
+        .sort-controls label {
+            font-weight: 600;
+            color: #555;
+        }
+        
+        .sort-controls select {
+            padding: 8px 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 6px;
+            font-size: 14px;
+            cursor: pointer;
+        }
     </style>
 </head>
 <body>
@@ -405,7 +508,7 @@ v2.0.2 (2025-10-29)
     <div id="loginContainer" class="login-container">
         <div class="login-box">
             <h1>🔐 Login Required</h1>
-            <p>Budget Build Club Inventory Manager v2.0.3</p>
+            <p>Budget Build Club Inventory Manager v2.1.0</p>
             
             <div id="loginError" class="error-message"></div>
             
@@ -432,7 +535,7 @@ v2.0.2 (2025-10-29)
     <div id="appContainer" class="app-container">
         <div class="container">
             <div class="header">
-                <div class="version-badge">v2.0.3</div>
+                <div class="version-badge">v2.1.0</div>
                 <button class="logout-btn" onclick="handleLogout()">Logout</button>
                 <h1>🛠️ COP Kits Inventory Manager</h1>
                 <p>Track orders, inventory, and profits in real-time</p>
@@ -510,13 +613,20 @@ v2.0.2 (2025-10-29)
                 <div class="section">
                     <h2>📊 Inventory</h2>
                     
-                    <h3 style="margin: 20px 0 10px 0; color: #555;">Components</h3>
+                    <!-- Shopping List Section -->
+                    <h3>🛒 Shopping List</h3>
+                    <div id="shoppingListContainer"></div>
+                    
+                    <h3>Components</h3>
                     <button class="btn" onclick="showNewComponentModal()" style="margin-bottom: 20px;">+ Add Component</button>
                     <table>
                         <thead>
                             <tr>
                                 <th>Component</th>
-                                <th>Needed for Orders</th>
+                                <th>Type</th>
+                                <th>Source</th>
+                                <th>Part Number</th>
+                                <th>Needed</th>
                                 <th>On Hand</th>
                                 <th>On Order</th>
                                 <th>ETA</th>
@@ -527,7 +637,7 @@ v2.0.2 (2025-10-29)
                         <tbody id="inventoryBody"></tbody>
                     </table>
                     
-                    <h3 style="margin: 40px 0 10px 0; color: #555;">Kits</h3>
+                    <h3>Kits</h3>
                     <button class="btn" onclick="showNewKitModal()" style="margin-bottom: 20px;">+ Add Kit</button>
                     <table>
                         <thead>
@@ -626,6 +736,26 @@ v2.0.2 (2025-10-29)
                 <input type="text" id="editComponentName">
             </div>
             <div class="form-group">
+                <label>Type</label>
+                <select id="editComponentType">
+                    <option value="purchased">Purchased</option>
+                    <option value="make">Make</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Source/Vendor</label>
+                <select id="editComponentSource">
+                    <option value="Amazon">Amazon</option>
+                    <option value="McMaster">McMaster-Carr</option>
+                    <option value="SendCutSend">SendCutSend</option>
+                    <option value="Other">Other</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Part Number / Product Link</label>
+                <input type="text" id="editComponentPartNumber" placeholder="e.g., B07XYZ1234 or full URL">
+            </div>
+            <div class="form-group">
                 <label>On Hand</label>
                 <input type="number" id="editComponentOnHand" min="0">
             </div>
@@ -696,6 +826,10 @@ v2.0.2 (2025-10-29)
         <div class="modal-content">
             <h3>Ship Order</h3>
             <p id="shipOrderCustomer"></p>
+            <div id="shipOrderWarning" style="background: #fef3c7; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: none;">
+                <strong style="color: #92400e;">⚠️ Warning:</strong>
+                <div id="shipOrderWarningText" style="color: #92400e; margin-top: 8px;"></div>
+            </div>
             <div class="form-group">
                 <label>Tracking Number</label>
                 <input type="text" id="shipOrderTracking" placeholder="Enter tracking number">
@@ -760,7 +894,7 @@ v2.0.2 (2025-10-29)
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     
     <script>
-        const APP_VERSION = '2.0.3';
+        const APP_VERSION = '2.1.0';
         let orders = [];
         let components = {};
         let kits = {};
@@ -770,6 +904,7 @@ v2.0.2 (2025-10-29)
         let currentEditKit = null;
         let currentShipOrderId = null;
         let firebaseAvailable = false;
+        let shoppingListSortBy = 'source';
         
         // Kit name mapping for Shopify CSV import
         const KIT_NAME_MAP = {
@@ -844,25 +979,92 @@ v2.0.2 (2025-10-29)
             if (Object.keys(components).length === 0) {
                 console.log('✓ Initializing default components...');
                 components = {
-                    "4x4x18\" Box": { onHand: 40, onOrder: 0, eta: "", costType: "box", boxSize: 25, costPerBox: 39 },
-                    "0.5x0.25x0.3125\" Spacer": { onHand: 98, onOrder: 0, eta: "", costType: "box", boxSize: 50, costPerBox: 24 },
-                    "0.5x0.25x1.375\" Spacer": { onHand: 0, onOrder: 0, eta: "", costType: "piece", costPerPiece: 3.94 },
-                    "M6x30mm Socket Head Screw": { onHand: 100, onOrder: 0, eta: "", costType: "box", boxSize: 50, costPerBox: 12.46 },
-                    "M6x50mm Hex Drive Flat Head": { onHand: 0, onOrder: 0, eta: "", costType: "box", boxSize: 10, costPerBox: 6.26 },
-                    "M6 Flat Washer": { onHand: 161, onOrder: 0, eta: "", costType: "box", boxSize: 100, costPerBox: 6.58 },
-                    "M6 Split Washer": { onHand: 191, onOrder: 0, eta: "", costType: "box", boxSize: 100, costPerBox: 5.29 },
-                    "M6x65mm Hex Drive Flat Head": { onHand: 49, onOrder: 0, eta: "", costType: "box", boxSize: 10, costPerBox: 6.77 },
-                    "M8x65mm Hex Drive Flat Head": { onHand: 17, onOrder: 0, eta: "", costType: "box", boxSize: 5, costPerBox: 6.0 },
-                    "M8x18mm Hex Drive Flat Head Screw": { onHand: 0, onOrder: 0, eta: "", costType: "box", boxSize: 10, costPerBox: 6.69 },
-                    "S13 Bracket": { onHand: 12, onOrder: 0, eta: "", costType: "piece", costPerPiece: 28.52 },
-                    "S14 Bracket": { onHand: 6, onOrder: 0, eta: "", costType: "piece", costPerPiece: 32.80 },
-                    "1NZ Bracket": { onHand: 0, onOrder: 0, eta: "", costType: "piece", costPerPiece: 28.52 },
-                    "2JZ Intake Bracket": { onHand: 0, onOrder: 0, eta: "", costType: "box", boxSize: 5, costPerBox: 259.5 },
-                    "Cap Part": { onHand: 99, onOrder: 0, eta: "", costType: "piece", costPerPiece: 5.00 }
+                    "4x4x18\" Box": { 
+                        onHand: 40, onOrder: 0, eta: "", 
+                        costType: "box", boxSize: 25, costPerBox: 39,
+                        type: "purchased", source: "Amazon", partNumber: ""
+                    },
+                    "0.5x0.25x0.3125\" Spacer": { 
+                        onHand: 98, onOrder: 0, eta: "", 
+                        costType: "box", boxSize: 50, costPerBox: 24,
+                        type: "purchased", source: "McMaster", partNumber: ""
+                    },
+                    "0.5x0.25x1.375\" Spacer": { 
+                        onHand: 0, onOrder: 0, eta: "", 
+                        costType: "piece", costPerPiece: 3.94,
+                        type: "purchased", source: "McMaster", partNumber: ""
+                    },
+                    "M6x30mm Socket Head Screw": { 
+                        onHand: 100, onOrder: 0, eta: "", 
+                        costType: "box", boxSize: 50, costPerBox: 12.46,
+                        type: "purchased", source: "McMaster", partNumber: ""
+                    },
+                    "M6x50mm Hex Drive Flat Head": { 
+                        onHand: 0, onOrder: 0, eta: "", 
+                        costType: "box", boxSize: 10, costPerBox: 6.26,
+                        type: "purchased", source: "McMaster", partNumber: ""
+                    },
+                    "M6 Flat Washer": { 
+                        onHand: 161, onOrder: 0, eta: "", 
+                        costType: "box", boxSize: 100, costPerBox: 6.58,
+                        type: "purchased", source: "McMaster", partNumber: ""
+                    },
+                    "M6 Split Washer": { 
+                        onHand: 191, onOrder: 0, eta: "", 
+                        costType: "box", boxSize: 100, costPerBox: 5.29,
+                        type: "purchased", source: "McMaster", partNumber: ""
+                    },
+                    "M6x65mm Hex Drive Flat Head": { 
+                        onHand: 49, onOrder: 0, eta: "", 
+                        costType: "box", boxSize: 10, costPerBox: 6.77,
+                        type: "purchased", source: "McMaster", partNumber: ""
+                    },
+                    "M8x65mm Hex Drive Flat Head": { 
+                        onHand: 17, onOrder: 0, eta: "", 
+                        costType: "box", boxSize: 5, costPerBox: 6.0,
+                        type: "purchased", source: "McMaster", partNumber: ""
+                    },
+                    "M8x18mm Hex Drive Flat Head Screw": { 
+                        onHand: 0, onOrder: 0, eta: "", 
+                        costType: "box", boxSize: 10, costPerBox: 6.69,
+                        type: "purchased", source: "McMaster", partNumber: ""
+                    },
+                    "S13 Bracket": { 
+                        onHand: 12, onOrder: 0, eta: "", 
+                        costType: "piece", costPerPiece: 28.52,
+                        type: "purchased", source: "SendCutSend", partNumber: ""
+                    },
+                    "S14 Bracket": { 
+                        onHand: 6, onOrder: 0, eta: "", 
+                        costType: "piece", costPerPiece: 32.80,
+                        type: "purchased", source: "SendCutSend", partNumber: ""
+                    },
+                    "1NZ Bracket": { 
+                        onHand: 0, onOrder: 0, eta: "", 
+                        costType: "piece", costPerPiece: 28.52,
+                        type: "purchased", source: "SendCutSend", partNumber: ""
+                    },
+                    "2JZ Intake Bracket": { 
+                        onHand: 0, onOrder: 0, eta: "", 
+                        costType: "box", boxSize: 5, costPerBox: 259.5,
+                        type: "purchased", source: "SendCutSend", partNumber: ""
+                    },
+                    "Cap Part": { 
+                        onHand: 99, onOrder: 0, eta: "", 
+                        costType: "piece", costPerPiece: 5.00,
+                        type: "make", source: "Other", partNumber: ""
+                    }
                 };
                 console.log('✓ Components initialized:', Object.keys(components).length, 'components');
             } else {
                 console.log('✗ Skipping components - already exist');
+                
+                // Migrate old components to add new fields if missing
+                for (const [name, comp] of Object.entries(components)) {
+                    if (!comp.type) comp.type = name === "Cap Part" ? "make" : "purchased";
+                    if (!comp.source) comp.source = name === "Cap Part" ? "Other" : "McMaster";
+                    if (!comp.partNumber) comp.partNumber = "";
+                }
             }
             
             if (Object.keys(kits).length === 0) {
@@ -997,14 +1199,19 @@ v2.0.2 (2025-10-29)
                 console.log(`Firebase has: ${firebaseOrders.length} orders, ${Object.keys(firebaseComponents).length} components, ${Object.keys(firebaseKits).length} kits`);
                 console.log(`Local has: ${orders.length} orders, ${Object.keys(components).length} components, ${Object.keys(kits).length} kits`);
                 
-                // CRITICAL FIX: Only overwrite local data if Firebase has data
-                // Otherwise keep local defaults and push them to Firebase
                 let needsSync = false;
                 
                 // Handle components
                 if (Object.keys(firebaseComponents).length > 0) {
                     console.log('✓ Using Firebase components');
                     components = firebaseComponents;
+                    
+                    // Migrate old data to add new fields
+                    for (const [name, comp] of Object.entries(components)) {
+                        if (!comp.type) comp.type = name === "Cap Part" ? "make" : "purchased";
+                        if (!comp.source) comp.source = "McMaster";
+                        if (!comp.partNumber) comp.partNumber = "";
+                    }
                 } else if (Object.keys(components).length > 0) {
                     console.log('⚠ Firebase missing components - will push local defaults');
                     needsSync = true;
@@ -1012,7 +1219,7 @@ v2.0.2 (2025-10-29)
                     console.log('⚠ Both empty - using defaults');
                 }
                 
-                // Handle kits (CRITICAL FIX)
+                // Handle kits
                 if (Object.keys(firebaseKits).length > 0) {
                     console.log('✓ Using Firebase kits:', Object.keys(firebaseKits).join(', '));
                     kits = firebaseKits;
@@ -1049,8 +1256,6 @@ v2.0.2 (2025-10-29)
                 firebaseAvailable = true;
                 updateFirebaseStatus('connected', 'Connected');
                 console.log('=== FIREBASE LOAD COMPLETE ===');
-                console.log('Final kit count:', Object.keys(kits).length);
-                console.log('Final kit names:', Object.keys(kits).join(', '));
             } catch (error) {
                 console.error('Firebase error:', error);
                 firebaseAvailable = false;
@@ -1084,7 +1289,7 @@ v2.0.2 (2025-10-29)
                     batch.set(compRef, comp);
                 }
                 
-                // Sync kits (CRITICAL)
+                // Sync kits
                 for (const [name, kit] of Object.entries(kits)) {
                     const kitRef = window.firebaseDoc(window.firebaseDB, 'kits', name);
                     batch.set(kitRef, kit);
@@ -1131,7 +1336,7 @@ v2.0.2 (2025-10-29)
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
         
-        // CSV Import Handler
+        // CSV Import Handler - with deduplication
         async function handleCSVImport(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -1144,6 +1349,14 @@ v2.0.2 (2025-10-29)
                 complete: function(results) {
                     console.log('CSV parsed:', results.data.length, 'rows');
                     
+                    // Create a map of existing orders by Shopify order number
+                    const existingOrdersMap = new Map();
+                    orders.forEach(order => {
+                        if (order.shopifyOrderNumber) {
+                            existingOrdersMap.set(order.shopifyOrderNumber, order);
+                        }
+                    });
+                    
                     // Group by order number
                     const orderMap = new Map();
                     
@@ -1152,14 +1365,23 @@ v2.0.2 (2025-10-29)
                         if (!orderNum || !orderNum.startsWith('#')) return;
                         
                         if (!orderMap.has(orderNum)) {
-                            orderMap.set(orderNum, {
-                                id: nextOrderId++,
-                                shopifyOrderNumber: orderNum,
-                                name: row['Billing Name']?.trim() || row['Shipping Name']?.trim() || 'Unknown',
-                                paid: row['Financial Status']?.toLowerCase() === 'paid',
-                                shipped: row['Fulfillment Status']?.toLowerCase() === 'fulfilled',
-                                tracking: ''
-                            });
+                            // Check if we already have this order
+                            const existingOrder = existingOrdersMap.get(orderNum);
+                            
+                            if (existingOrder) {
+                                // Update existing order
+                                orderMap.set(orderNum, existingOrder);
+                            } else {
+                                // Create new order
+                                orderMap.set(orderNum, {
+                                    id: nextOrderId++,
+                                    shopifyOrderNumber: orderNum,
+                                    name: row['Billing Name']?.trim() || row['Shipping Name']?.trim() || 'Unknown',
+                                    paid: row['Financial Status']?.toLowerCase() === 'paid',
+                                    shipped: row['Fulfillment Status']?.toLowerCase() === 'fulfilled',
+                                    tracking: ''
+                                });
+                            }
                         }
                         
                         const order = orderMap.get(orderNum);
@@ -1167,10 +1389,8 @@ v2.0.2 (2025-10-29)
                         const lineitemQty = parseInt(row['Lineitem quantity']) || 0;
                         
                         if (lineitemName && lineitemQty > 0) {
-                            // Map Shopify product name to kit name
                             let kitName = KIT_NAME_MAP[lineitemName] || lineitemName;
                             
-                            // Try fuzzy matching if exact match not found
                             if (!KIT_NAME_MAP[lineitemName]) {
                                 for (const [shopifyName, mappedName] of Object.entries(KIT_NAME_MAP)) {
                                     if (lineitemName.toLowerCase().includes(mappedName.toLowerCase())) {
@@ -1185,15 +1405,27 @@ v2.0.2 (2025-10-29)
                         }
                     });
                     
-                    // Add orders to array
-                    const newOrders = Array.from(orderMap.values());
-                    orders.push(...newOrders);
+                    // Update orders array - remove old versions and add updated ones
+                    const updatedOrderNumbers = new Set(Array.from(orderMap.keys()));
+                    orders = orders.filter(o => !o.shopifyOrderNumber || !updatedOrderNumbers.has(o.shopifyOrderNumber));
+                    orders.push(...Array.from(orderMap.values()));
+                    
+                    const newCount = Array.from(orderMap.values()).filter(o => !existingOrdersMap.has(o.shopifyOrderNumber)).length;
+                    const updatedCount = Array.from(orderMap.values()).filter(o => existingOrdersMap.has(o.shopifyOrderNumber)).length;
                     
                     saveToLocalStorage();
                     syncToFirebase();
                     renderAll();
                     
-                    showToast(`Imported ${newOrders.length} orders from Shopify!`);
+                    if (newCount > 0 && updatedCount > 0) {
+                        showToast(`Imported ${newCount} new orders, updated ${updatedCount} existing orders!`);
+                    } else if (newCount > 0) {
+                        showToast(`Imported ${newCount} new orders from Shopify!`);
+                    } else if (updatedCount > 0) {
+                        showToast(`Updated ${updatedCount} existing orders!`);
+                    } else {
+                        showToast('No new orders to import');
+                    }
                 },
                 error: function(error) {
                     console.error('CSV parse error:', error);
@@ -1207,6 +1439,7 @@ v2.0.2 (2025-10-29)
         function renderAll() {
             updateStats();
             renderOrders();
+            renderShoppingList();
             renderInventory();
             renderKits();
             renderShippedOrders();
@@ -1227,6 +1460,140 @@ v2.0.2 (2025-10-29)
                 }
             }
             return 0;
+        }
+        
+        // Deduct inventory when shipping
+        function deductInventoryForOrder(order) {
+            console.log('Deducting inventory for order:', order.id);
+            
+            for (const [kitName, kit] of Object.entries(kits)) {
+                const qtyNeeded = getKitQtyFromOrder(order, kitName);
+                if (qtyNeeded === 0) continue;
+                
+                console.log(`Deducting ${qtyNeeded}x ${kitName}`);
+                
+                for (const [componentName, componentQty] of Object.entries(kit.components)) {
+                    const comp = components[componentName];
+                    if (!comp) {
+                        console.warn(`Component ${componentName} not found!`);
+                        continue;
+                    }
+                    
+                    const totalNeeded = componentQty * qtyNeeded;
+                    const oldOnHand = comp.onHand;
+                    comp.onHand = Math.max(0, comp.onHand - totalNeeded);
+                    
+                    console.log(`  - ${componentName}: ${oldOnHand} -> ${comp.onHand} (used ${totalNeeded})`);
+                }
+            }
+            
+            saveToLocalStorage();
+            syncToFirebase();
+        }
+        
+        // Render shopping list
+        function renderShoppingList() {
+            const container = document.getElementById('shoppingListContainer');
+            const shoppingList = [];
+            
+            // Calculate what's needed for all paid unshipped orders
+            const paidOrders = orders.filter(o => o.paid && !o.shipped);
+            
+            paidOrders.forEach(order => {
+                for (const [kitName, kit] of Object.entries(kits)) {
+                    const kitQty = getKitQtyFromOrder(order, kitName);
+                    if (kitQty === 0) continue;
+                    
+                    for (const [componentName, componentQty] of Object.entries(kit.components)) {
+                        const comp = components[componentName];
+                        if (!comp) continue;
+                        
+                        const totalNeeded = componentQty * kitQty;
+                        const shortage = Math.max(0, totalNeeded - comp.onHand);
+                        
+                        if (shortage > 0) {
+                            const existing = shoppingList.find(item => item.name === componentName);
+                            if (existing) {
+                                existing.shortage += shortage;
+                            } else {
+                                shoppingList.push({
+                                    name: componentName,
+                                    shortage: shortage,
+                                    type: comp.type || 'purchased',
+                                    source: comp.source || 'Other',
+                                    partNumber: comp.partNumber || '',
+                                    onOrder: comp.onOrder || 0
+                                });
+                            }
+                        }
+                    }
+                }
+            });
+            
+            // Sort shopping list
+            shoppingList.sort((a, b) => {
+                if (shoppingListSortBy === 'source') {
+                    if (a.source !== b.source) return a.source.localeCompare(b.source);
+                    if (a.type !== b.type) return a.type.localeCompare(b.type);
+                    return a.name.localeCompare(b.name);
+                } else if (shoppingListSortBy === 'type') {
+                    if (a.type !== b.type) return a.type.localeCompare(b.type);
+                    if (a.source !== b.source) return a.source.localeCompare(b.source);
+                    return a.name.localeCompare(b.name);
+                } else {
+                    return a.name.localeCompare(b.name);
+                }
+            });
+            
+            if (shoppingList.length === 0) {
+                container.innerHTML = '<div class="shopping-list-empty"><strong>✓ All components in stock!</strong><br>No items need to be ordered right now.</div>';
+                return;
+            }
+            
+            // Group by source for better display
+            const grouped = {};
+            shoppingList.forEach(item => {
+                const key = `${item.source}|||${item.type}`;
+                if (!grouped[key]) grouped[key] = [];
+                grouped[key].push(item);
+            });
+            
+            let html = '<div class="shopping-list-alert"><h4>⚠️ Items Low in Stock</h4>';
+            html += `<div class="sort-controls">
+                <label>Sort by:</label>
+                <select onchange="shoppingListSortBy = this.value; renderShoppingList()">
+                    <option value="source" ${shoppingListSortBy === 'source' ? 'selected' : ''}>Source/Vendor</option>
+                    <option value="type" ${shoppingListSortBy === 'type' ? 'selected' : ''}>Type (Purchased/Make)</option>
+                    <option value="name" ${shoppingListSortBy === 'name' ? 'selected' : ''}>Component Name</option>
+                </select>
+            </div></div>`;
+            
+            html += '<table><thead><tr><th>Component</th><th>Type</th><th>Source</th><th>Part Number</th><th>Need to Order</th><th>Already On Order</th></tr></thead><tbody>';
+            
+            shoppingList.forEach(item => {
+                const typeBadge = `<span class="type-badge type-${item.type}">${item.type}</span>`;
+                const partLink = item.partNumber ? 
+                    (item.partNumber.startsWith('http') ? 
+                        `<a href="${item.partNumber}" target="_blank" class="part-link">${item.partNumber}</a>` :
+                        `<span>${item.partNumber}</span>`) :
+                    '<span style="color: #999;">-</span>';
+                
+                const onOrderStatus = item.onOrder >= item.shortage ? 
+                    `<span style="color: #10b981; font-weight: bold;">${item.onOrder} ✓</span>` :
+                    `<span style="color: #ef4444; font-weight: bold;">${item.onOrder}</span>`;
+                
+                html += `<tr onclick="editComponent('${item.name.replace(/'/g, "\\'")}')" style="background: ${item.type === 'make' ? '#fef3f3' : '#f8f9fa'}">
+                    <td><strong>${item.name}</strong></td>
+                    <td>${typeBadge}</td>
+                    <td>${item.source}</td>
+                    <td>${partLink}</td>
+                    <td><strong style="color: #ef4444;">${item.shortage}</strong></td>
+                    <td>${onOrderStatus}</td>
+                </tr>`;
+            });
+            
+            html += '</tbody></table>';
+            container.innerHTML = html;
         }
         
         function calculateStats() {
@@ -1405,35 +1772,6 @@ v2.0.2 (2025-10-29)
             renderOrdersSummary();
         }
         
-        // Console helper function for debugging
-        window.debugOrders = function() {
-            console.log('=== ORDER DEBUG INFO ===');
-            console.log('Total orders:', orders.length);
-            console.log('Available kits:', Object.keys(kits));
-            console.log('\nFirst 5 orders:');
-            orders.slice(0, 5).forEach(order => {
-                console.log(`Order ${order.id} (${order.name}):`);
-                console.log('  All properties:', Object.keys(order));
-                Object.keys(kits).forEach(kitName => {
-                    const qty = order[kitName.toLowerCase()];
-                    console.log(`  ${kitName}: ${qty !== undefined ? qty : 'MISSING'}`);
-                });
-            });
-        };
-        
-        window.debugKits = function() {
-            console.log('=== KIT DEBUG INFO ===');
-            console.log('Kits object:', kits);
-            console.log('Kit count:', Object.keys(kits).length);
-            console.log('Kit names:', Object.keys(kits).join(', '));
-            for (const [name, kit] of Object.entries(kits)) {
-                console.log(`\nKit: ${name}`);
-                console.log('  Cost:', kit.cost);
-                console.log('  Price:', kit.price);
-                console.log('  Components:', Object.keys(kit.components).join(', '));
-            }
-        };
-        
         function renderInventory() {
             const tbody = document.getElementById('inventoryBody');
             tbody.innerHTML = '';
@@ -1466,10 +1804,20 @@ v2.0.2 (2025-10-29)
                     }
                 }
                 
+                const typeBadge = `<span class="type-badge type-${comp.type || 'purchased'}">${comp.type || 'purchased'}</span>`;
+                const partLink = comp.partNumber ? 
+                    (comp.partNumber.startsWith('http') ? 
+                        `<a href="${comp.partNumber}" target="_blank" class="part-link">${comp.partNumber}</a>` :
+                        `<span>${comp.partNumber}</span>`) :
+                    '<span style="color: #999;">-</span>';
+                
                 const row = document.createElement('tr');
                 row.onclick = () => editComponent(name);
                 row.innerHTML = `
                     <td><strong>${name}</strong></td>
+                    <td>${typeBadge}</td>
+                    <td>${comp.source || 'Other'}</td>
+                    <td>${partLink}</td>
                     <td>${needed}</td>
                     <td><span class="${onHandClass}">${comp.onHand}</span></td>
                     <td>${comp.onOrder}</td>
@@ -1496,20 +1844,15 @@ v2.0.2 (2025-10-29)
         }
         
         function renderKits() {
-            console.log('=== RENDERING KITS ===');
-            console.log('Kits to render:', Object.keys(kits).length);
-            
             const tbody = document.getElementById('kitsBody');
             tbody.innerHTML = '';
             
             if (Object.keys(kits).length === 0) {
-                console.log('⚠ No kits to render!');
                 tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">No kits defined. Click "+ Add Kit" to create one.</td></tr>';
                 return;
             }
             
             for (const [kitName, kit] of Object.entries(kits)) {
-                console.log('Rendering kit:', kitName);
                 const canMake = calculateKitsCanMake(kitName);
                 const componentsList = Object.entries(kit.components)
                     .map(([comp, qty]) => `${qty}× ${comp}`)
@@ -1526,8 +1869,6 @@ v2.0.2 (2025-10-29)
                 `;
                 tbody.appendChild(row);
             }
-            
-            console.log('✓ Kits rendered');
         }
         
         function renderShippedOrders() {
@@ -1903,6 +2244,34 @@ v2.0.2 (2025-10-29)
             
             closeNewOrderModal();
             
+            // Check if order can be fulfilled
+            const canShip = canFulfillOrder(order);
+            const warningDiv = document.getElementById('shipOrderWarning');
+            const warningText = document.getElementById('shipOrderWarningText');
+            
+            if (!canShip) {
+                warningDiv.style.display = 'block';
+                const shortages = [];
+                
+                for (const [kitName, kit] of Object.entries(kits)) {
+                    const qtyNeeded = getKitQtyFromOrder(order, kitName);
+                    if (qtyNeeded === 0) continue;
+                    
+                    for (const [componentName, componentQty] of Object.entries(kit.components)) {
+                        const comp = components[componentName];
+                        if (!comp) continue;
+                        const totalNeeded = componentQty * qtyNeeded;
+                        if (comp.onHand < totalNeeded) {
+                            shortages.push(`${componentName}: need ${totalNeeded}, have ${comp.onHand}`);
+                        }
+                    }
+                }
+                
+                warningText.innerHTML = `This order cannot be fully fulfilled with current stock. Missing components:<br><br>${shortages.join('<br>')}`;
+            } else {
+                warningDiv.style.display = 'none';
+            }
+            
             document.getElementById('shipOrderCustomer').textContent = `Shipping order for ${order.name}`;
             document.getElementById('shipOrderTracking').value = order.tracking || '';
             document.getElementById('shipOrderModal').classList.add('active');
@@ -1922,24 +2291,29 @@ v2.0.2 (2025-10-29)
             order.shipped = true;
             order.tracking = tracking;
             
+            // Deduct inventory
+            deductInventoryForOrder(order);
+            
             closeShipOrderModal();
             saveToLocalStorage();
             syncToFirebase();
             renderAll();
-            showToast('Order shipped!');
+            showToast('Order shipped! Inventory updated.');
         }
         
         function unshipOrder(orderId) {
             const order = orders.find(o => o.id === orderId);
             if (!order) return;
             
-            order.shipped = false;
-            order.tracking = '';
-            
-            saveToLocalStorage();
-            syncToFirebase();
-            renderAll();
-            showToast('Order unshipped');
+            if (confirm('Unship this order? Note: Inventory will NOT be restored automatically.')) {
+                order.shipped = false;
+                order.tracking = '';
+                
+                saveToLocalStorage();
+                syncToFirebase();
+                renderAll();
+                showToast('Order unshipped (inventory not restored)');
+            }
         }
         
         // Component Modal Functions
@@ -1948,6 +2322,9 @@ v2.0.2 (2025-10-29)
             document.getElementById('componentModalTitle').textContent = 'Add New Component';
             document.getElementById('editComponentName').value = '';
             document.getElementById('editComponentName').disabled = false;
+            document.getElementById('editComponentType').value = 'purchased';
+            document.getElementById('editComponentSource').value = 'Amazon';
+            document.getElementById('editComponentPartNumber').value = '';
             document.getElementById('editComponentOnHand').value = '0';
             document.getElementById('editComponentOnOrder').value = '0';
             document.getElementById('editComponentEta').value = '';
@@ -1981,6 +2358,9 @@ v2.0.2 (2025-10-29)
         
         function saveComponentEdit() {
             const name = document.getElementById('editComponentName').value.trim();
+            const type = document.getElementById('editComponentType').value;
+            const source = document.getElementById('editComponentSource').value;
+            const partNumber = document.getElementById('editComponentPartNumber').value.trim();
             const onHand = parseInt(document.getElementById('editComponentOnHand').value) || 0;
             const onOrder = parseInt(document.getElementById('editComponentOnOrder').value) || 0;
             const eta = document.getElementById('editComponentEta').value.trim();
@@ -1991,7 +2371,7 @@ v2.0.2 (2025-10-29)
                 return;
             }
             
-            let costData = { costType };
+            let costData = { costType, type, source, partNumber };
             if (costType === 'piece') {
                 const costPerPiece = parseFloat(document.getElementById('editComponentCostPiece').value) || 0;
                 costData.costPerPiece = costPerPiece;
@@ -2029,8 +2409,7 @@ v2.0.2 (2025-10-29)
             closeEditComponentModal();
             saveToLocalStorage();
             syncToFirebase();
-            renderInventory();
-            renderOrders();
+            renderAll();
             showToast('Component saved');
         }
         
@@ -2041,6 +2420,9 @@ v2.0.2 (2025-10-29)
             document.getElementById('componentModalTitle').textContent = `Edit ${componentName}`;
             document.getElementById('editComponentName').value = componentName;
             document.getElementById('editComponentName').disabled = true;
+            document.getElementById('editComponentType').value = comp.type || 'purchased';
+            document.getElementById('editComponentSource').value = comp.source || 'Amazon';
+            document.getElementById('editComponentPartNumber').value = comp.partNumber || '';
             document.getElementById('editComponentOnHand').value = comp.onHand;
             document.getElementById('editComponentOnOrder').value = comp.onOrder;
             document.getElementById('editComponentEta').value = comp.eta;
@@ -2260,41 +2642,6 @@ v2.0.2 (2025-10-29)
             showToast('Kit deleted');
         }
         
-        // Initialize
-        window.showNewOrderModal = showNewOrderModal;
-        window.closeNewOrderModal = closeNewOrderModal;
-        window.addNewOrder = addNewOrder;
-        window.editOrder = editOrder;
-        window.saveOrderEdit = saveOrderEdit;
-        window.deleteCurrentOrder = deleteCurrentOrder;
-        window.deleteAllOrders = deleteAllOrders;
-        window.showShipOrderModalFromEdit = showShipOrderModalFromEdit;
-        window.closeShipOrderModal = closeShipOrderModal;
-        window.confirmShipOrder = confirmShipOrder;
-        window.unshipOrder = unshipOrder;
-        window.showAddProductToOrder = showAddProductToOrder;
-        window.updateProductQuantity = updateProductQuantity;
-        window.removeProductFromOrder = removeProductFromOrder;
-        window.updateOrderSummary = updateOrderSummary;
-        window.showNewComponentModal = showNewComponentModal;
-        window.closeEditComponentModal = closeEditComponentModal;
-        window.toggleCostFields = toggleCostFields;
-        window.saveComponentEdit = saveComponentEdit;
-        window.editComponent = editComponent;
-        window.deleteCurrentComponent = deleteCurrentComponent;
-        window.showNewKitModal = showNewKitModal;
-        window.closeNewKitModal = closeNewKitModal;
-        window.toggleKitComponent = toggleKitComponent;
-        window.addNewKit = addNewKit;
-        window.editKit = editKit;
-        window.saveKitEdit = saveKitEdit;
-        window.deleteCurrentKit = deleteCurrentKit;
-        window.handleCSVImport = handleCSVImport;
-        window.handleLogin = handleLogin;
-        window.handleLogout = handleLogout;
-        window.manualSync = manualSync;
-        window.initializeApp = initializeApp;
-        
         async function deleteAllOrders() {
             if (!confirm('⚠️ WARNING: This will delete ALL orders!\n\nAre you absolutely sure? This cannot be undone!')) {
                 return;
@@ -2338,6 +2685,41 @@ v2.0.2 (2025-10-29)
             
             renderAll();
         }
+        
+        // Initialize
+        window.showNewOrderModal = showNewOrderModal;
+        window.closeNewOrderModal = closeNewOrderModal;
+        window.addNewOrder = addNewOrder;
+        window.editOrder = editOrder;
+        window.saveOrderEdit = saveOrderEdit;
+        window.deleteCurrentOrder = deleteCurrentOrder;
+        window.deleteAllOrders = deleteAllOrders;
+        window.showShipOrderModalFromEdit = showShipOrderModalFromEdit;
+        window.closeShipOrderModal = closeShipOrderModal;
+        window.confirmShipOrder = confirmShipOrder;
+        window.unshipOrder = unshipOrder;
+        window.showAddProductToOrder = showAddProductToOrder;
+        window.updateProductQuantity = updateProductQuantity;
+        window.removeProductFromOrder = removeProductFromOrder;
+        window.updateOrderSummary = updateOrderSummary;
+        window.showNewComponentModal = showNewComponentModal;
+        window.closeEditComponentModal = closeEditComponentModal;
+        window.toggleCostFields = toggleCostFields;
+        window.saveComponentEdit = saveComponentEdit;
+        window.editComponent = editComponent;
+        window.deleteCurrentComponent = deleteCurrentComponent;
+        window.showNewKitModal = showNewKitModal;
+        window.closeNewKitModal = closeNewKitModal;
+        window.toggleKitComponent = toggleKitComponent;
+        window.addNewKit = addNewKit;
+        window.editKit = editKit;
+        window.saveKitEdit = saveKitEdit;
+        window.deleteCurrentKit = deleteCurrentKit;
+        window.handleCSVImport = handleCSVImport;
+        window.handleLogin = handleLogin;
+        window.handleLogout = handleLogout;
+        window.manualSync = manualSync;
+        window.initializeApp = initializeApp;
     </script>
 </body>
 </html>

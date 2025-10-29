@@ -2,10 +2,19 @@
 <html lang="en">
 <!--
 Budget Build Club Inventory Manager
-Version: 2.0.0
+Version: 2.0.1
 Last Updated: 2025-10-29
 
 CHANGELOG:
+v2.0.1 (2025-10-29)
+- CRITICAL FIX: Added default components and kits initialization
+- Added "Delete All Orders" button with double confirmation
+- Fixed issue where orders had no product data after CSV import
+- Auto-pushes components and kits to Firebase if missing
+- Improved Firebase data loading and merging logic
+- Added debugOrders() console function for troubleshooting
+- Enhanced order rendering with debug logging
+
 v2.0.0 (2025-10-29)
 - MAJOR UPDATE: Combined Firebase sync with superior Offline App UI
 - Integrated all Offline App features (order summary, visual status, product editing)
@@ -20,7 +29,7 @@ v2.0.0 (2025-10-29)
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Budget Build Club Inventory Manager v2.0.0</title>
+    <title>Budget Build Club Inventory Manager v2.0.1</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -402,7 +411,7 @@ v2.0.0 (2025-10-29)
     <div id="loginContainer" class="login-container">
         <div class="login-box">
             <h1>🔐 Login Required</h1>
-            <p>Budget Build Club Inventory Manager v2.0.0</p>
+            <p>Budget Build Club Inventory Manager v2.0.1</p>
             
             <div id="loginError" class="error-message"></div>
             
@@ -429,7 +438,7 @@ v2.0.0 (2025-10-29)
     <div id="appContainer" class="app-container">
         <div class="container">
             <div class="header">
-                <div class="version-badge">v2.0.0</div>
+                <div class="version-badge">v2.0.1</div>
                 <button class="logout-btn" onclick="handleLogout()">Logout</button>
                 <h1>🛠️ COP Kits Inventory Manager</h1>
                 <p>Track orders, inventory, and profits in real-time</p>
@@ -473,7 +482,10 @@ v2.0.0 (2025-10-29)
             
             <div class="content">
                 <div class="section">
-                    <h2>📦 Orders</h2>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                        <h2 style="margin-bottom: 0;">📦 Orders</h2>
+                        <button class="btn btn-danger" onclick="deleteAllOrders()">🗑️ Delete All Orders</button>
+                    </div>
                     <div style="display: flex; gap: 10px; margin-bottom: 20px;">
                         <button class="btn" onclick="showNewOrderModal()">+ Add New Order</button>
                         <button class="btn" onclick="document.getElementById('csvFileInput').click()">📥 Import from Shopify CSV</button>
@@ -754,7 +766,7 @@ v2.0.0 (2025-10-29)
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     
     <script>
-        const APP_VERSION = '2.0.0';
+        const APP_VERSION = '2.0.1';
         let orders = [];
         let components = {};
         let kits = {};
@@ -823,8 +835,95 @@ v2.0.0 (2025-10-29)
         // Initialize app
         function initializeApp() {
             console.log(`Initializing Budget Build Club Inventory Manager v${APP_VERSION}`);
+            initializeDefaultData();
             loadFromLocalStorage();
             tryLoadFromFirebase();
+        }
+        
+        // Initialize default components and kits if they don't exist
+        function initializeDefaultData() {
+            // Only initialize if completely empty
+            if (Object.keys(components).length === 0) {
+                console.log('Initializing default components...');
+                components = {
+                    "4x4x18\" Box": { onHand: 40, onOrder: 0, eta: "", costType: "box", boxSize: 25, costPerBox: 39 },
+                    "0.5x0.25x0.3125\" Spacer": { onHand: 98, onOrder: 0, eta: "", costType: "box", boxSize: 50, costPerBox: 24 },
+                    "0.5x0.25x1.375\" Spacer": { onHand: 0, onOrder: 0, eta: "", costType: "piece", costPerPiece: 3.94 },
+                    "M6x30mm Socket Head Screw": { onHand: 100, onOrder: 0, eta: "", costType: "box", boxSize: 50, costPerBox: 12.46 },
+                    "M6x50mm Hex Drive Flat Head": { onHand: 0, onOrder: 0, eta: "", costType: "box", boxSize: 10, costPerBox: 6.26 },
+                    "M6 Flat Washer": { onHand: 161, onOrder: 0, eta: "", costType: "box", boxSize: 100, costPerBox: 6.58 },
+                    "M6 Split Washer": { onHand: 191, onOrder: 0, eta: "", costType: "box", boxSize: 100, costPerBox: 5.29 },
+                    "M6x65mm Hex Drive Flat Head": { onHand: 49, onOrder: 0, eta: "", costType: "box", boxSize: 10, costPerBox: 6.77 },
+                    "M8x65mm Hex Drive Flat Head": { onHand: 17, onOrder: 0, eta: "", costType: "box", boxSize: 5, costPerBox: 6.0 },
+                    "M8x18mm Hex Drive Flat Head Screw": { onHand: 0, onOrder: 0, eta: "", costType: "box", boxSize: 10, costPerBox: 6.69 },
+                    "S13 Bracket": { onHand: 12, onOrder: 0, eta: "", costType: "piece", costPerPiece: 28.52 },
+                    "S14 Bracket": { onHand: 6, onOrder: 0, eta: "", costType: "piece", costPerPiece: 32.80 },
+                    "1NZ Bracket": { onHand: 0, onOrder: 0, eta: "", costType: "piece", costPerPiece: 28.52 },
+                    "2JZ Intake Bracket": { onHand: 0, onOrder: 0, eta: "", costType: "box", boxSize: 5, costPerBox: 259.5 },
+                    "Cap Part": { onHand: 99, onOrder: 0, eta: "", costType: "piece", costPerPiece: 5.00 }
+                };
+            }
+            
+            if (Object.keys(kits).length === 0) {
+                console.log('Initializing default kits...');
+                kits = {
+                    "S13": {
+                        cost: 42.67,
+                        price: 80,
+                        components: {
+                            "4x4x18\" Box": 1,
+                            "0.5x0.25x0.3125\" Spacer": 4,
+                            "M6x30mm Socket Head Screw": 4,
+                            "M6 Flat Washer": 4,
+                            "M6 Split Washer": 4,
+                            "M6x65mm Hex Drive Flat Head": 3,
+                            "S13 Bracket": 1
+                        }
+                    },
+                    "S14": {
+                        cost: 45.87,
+                        price: 80,
+                        components: {
+                            "4x4x18\" Box": 1,
+                            "0.5x0.25x0.3125\" Spacer": 4,
+                            "M6x30mm Socket Head Screw": 4,
+                            "M6 Flat Washer": 4,
+                            "M6 Split Washer": 4,
+                            "M8x65mm Hex Drive Flat Head": 2,
+                            "S14 Bracket": 1
+                        }
+                    },
+                    "Cap": {
+                        cost: 5.00,
+                        price: 20,
+                        components: {
+                            "Cap Part": 1
+                        }
+                    },
+                    "1NZ COP Adapter": {
+                        cost: 31.40,
+                        price: 80,
+                        components: {
+                            "1NZ Bracket": 1,
+                            "M6x50mm Hex Drive Flat Head": 6,
+                            "M6x30mm Socket Head Screw": 6,
+                            "M6 Flat Washer": 6,
+                            "M6 Split Washer": 6,
+                            "0.5x0.25x1.375\" Spacer": 6,
+                            "0.5x0.25x0.3125\" Spacer": 6
+                        }
+                    },
+                    "2JZ Intake Adapter": {
+                        cost: 58.34,
+                        price: 60,
+                        components: {
+                            "4x4x18\" Box": 1,
+                            "M8x18mm Hex Drive Flat Head Screw": 7,
+                            "2JZ Intake Bracket": 1
+                        }
+                    }
+                };
+            }
         }
         
         function loadFromLocalStorage() {
@@ -885,17 +984,33 @@ v2.0.0 (2025-10-29)
                 
                 console.log(`Firebase: ${firebaseOrders.length} orders, ${Object.keys(firebaseComponents).length} components, ${Object.keys(firebaseKits).length} kits`);
                 
-                if (firebaseOrders.length > 0 || Object.keys(firebaseComponents).length > 0 || Object.keys(firebaseKits).length > 0) {
-                    orders = firebaseOrders;
+                // Always ensure we have components and kits (merge with defaults)
+                if (Object.keys(firebaseComponents).length > 0) {
                     components = firebaseComponents;
+                } else {
+                    console.log('No components in Firebase, using defaults and will push to Firebase');
+                }
+                
+                if (Object.keys(firebaseKits).length > 0) {
                     kits = firebaseKits;
+                } else {
+                    console.log('No kits in Firebase, using defaults and will push to Firebase');
+                }
+                
+                // Load orders from Firebase
+                if (firebaseOrders.length > 0) {
+                    orders = firebaseOrders;
                     nextOrderId = firebaseNextOrderId;
-                    saveToLocalStorage();
-                    renderAll();
-                } else if (orders.length > 0 || Object.keys(components).length > 0 || Object.keys(kits).length > 0) {
-                    console.log('Pushing local data to Firebase...');
+                }
+                
+                // If Firebase was missing components or kits, push them now
+                if (Object.keys(firebaseComponents).length === 0 || Object.keys(firebaseKits).length === 0) {
+                    console.log('Pushing default components and kits to Firebase...');
                     await syncToFirebase();
                 }
+                
+                saveToLocalStorage();
+                renderAll();
                 
                 firebaseAvailable = true;
                 updateFirebaseStatus('connected', 'Connected');
@@ -1173,7 +1288,13 @@ v2.0.0 (2025-10-29)
             
             const activeOrders = orders.filter(o => !o.shipped);
             
+            console.log('Rendering orders:', activeOrders.length);
+            console.log('Available kits:', Object.keys(kits));
+            
             activeOrders.forEach(order => {
+                console.log('Processing order:', order.id, order.name, 'Kit data:', 
+                    Object.keys(kits).map(k => `${k}: ${order[k.toLowerCase()] || 0}`).join(', '));
+                
                 let totalQty = 0;
                 const productList = [];
                 
@@ -1222,6 +1343,22 @@ v2.0.0 (2025-10-29)
             
             renderOrdersSummary();
         }
+        
+        // Console helper function for debugging
+        window.debugOrders = function() {
+            console.log('=== ORDER DEBUG INFO ===');
+            console.log('Total orders:', orders.length);
+            console.log('Available kits:', Object.keys(kits));
+            console.log('\nFirst 5 orders:');
+            orders.slice(0, 5).forEach(order => {
+                console.log(`Order ${order.id} (${order.name}):`);
+                console.log('  All properties:', Object.keys(order));
+                Object.keys(kits).forEach(kitName => {
+                    const qty = order[kitName.toLowerCase()];
+                    console.log(`  ${kitName}: ${qty !== undefined ? qty : 'MISSING'}`);
+                });
+            });
+        };
         
         function renderInventory() {
             const tbody = document.getElementById('inventoryBody');
@@ -2042,6 +2179,7 @@ v2.0.0 (2025-10-29)
         window.editOrder = editOrder;
         window.saveOrderEdit = saveOrderEdit;
         window.deleteCurrentOrder = deleteCurrentOrder;
+        window.deleteAllOrders = deleteAllOrders;
         window.showShipOrderModalFromEdit = showShipOrderModalFromEdit;
         window.closeShipOrderModal = closeShipOrderModal;
         window.confirmShipOrder = confirmShipOrder;
@@ -2068,6 +2206,57 @@ v2.0.0 (2025-10-29)
         window.handleLogout = handleLogout;
         window.manualSync = manualSync;
         window.initializeApp = initializeApp;
+        
+        async function deleteAllOrders() {
+            if (!confirm('⚠️ WARNING: This will delete ALL orders!\n\nAre you absolutely sure? This cannot be undone!')) {
+                return;
+            }
+            
+            if (!confirm('🚨 FINAL CONFIRMATION: Delete all ' + orders.length + ' orders?\n\nType YES in your mind and click OK to proceed.')) {
+                return;
+            }
+            
+            showToast('Deleting all orders...');
+            
+            // Clear local orders
+            orders = [];
+            nextOrderId = 1;
+            
+            // Save to localStorage
+            saveToLocalStorage();
+            
+            // Delete from Firebase
+            if (window.firebaseReady && firebaseAvailable && window.firebaseAuth.currentUser) {
+                try {
+                    updateFirebaseStatus('syncing', 'Deleting orders...');
+                    
+                    // Get all order documents
+                    const ordersSnapshot = await window.firebaseGetDocs(window.firebaseCollection(window.firebaseDB, 'orders'));
+                    
+                    // Delete in batches (max 500 per batch)
+                    const batch = window.firebaseWriteBatch(window.firebaseDB);
+                    ordersSnapshot.forEach(doc => {
+                        batch.delete(doc.ref);
+                    });
+                    
+                    // Reset nextOrderId
+                    const nextOrderIdRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'nextOrderId');
+                    batch.set(nextOrderIdRef, { value: 1 });
+                    
+                    await batch.commit();
+                    updateFirebaseStatus('connected', 'Connected');
+                    showToast('All orders deleted successfully!');
+                } catch (error) {
+                    console.error('Error deleting from Firebase:', error);
+                    showToast('Orders deleted locally, Firebase sync failed');
+                }
+            } else {
+                showToast('All orders deleted locally');
+            }
+            
+            // Re-render everything
+            renderAll();
+        }
     </script>
 </body>
 </html>

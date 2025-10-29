@@ -1477,34 +1477,133 @@ v1.2.0 (2025-10-28)
         function importOrdersCSV(event) {
             const file = event.target.files[0];
             if (!file) return;
+            
             const reader = new FileReader();
             reader.onload = async function(e) {
-                const lines = e.target.result.split('\n').filter(line => line.trim());
-                if (lines.length < 2) { alert('Invalid CSV'); return; }
-                const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-                for (let i = 1; i < lines.length; i++) {
-                    const parts = lines[i].split(',').map(p => p.trim());
-                    const order = { id: nextOrderId++ };
-                    headers.forEach((header, index) => {
-                        if (header === 'name') order.name = parts[index];
-                        else if (header.includes('shopify') || header.includes('order')) order.shopifyOrderNumber = parts[index];
-                        else if (header === 'paid') order.paid = parts[index].toLowerCase() === 'true' || parts[index] === '1';
-                        else if (header === 'shipped') order.shipped = parts[index].toLowerCase() === 'true' || parts[index] === '1';
-                        else if (header === 'tracking') order.tracking = parts[index];
-                        else {
-                            const kitName = Object.keys(kits).find(k => k.toLowerCase() === header);
-                            if (kitName) order[kitName.toLowerCase()] = parseInt(parts[index]) || 0;
+                try {
+                    const text = e.target.result;
+                    const lines = text.split('\n').filter(line => line.trim());
+                    if (lines.length < 2) { 
+                        alert('CSV file is empty or invalid'); 
+                        return; 
+                    }
+                    
+                    // Parse headers
+                    const headers = parseCSVLine(lines[0]);
+                    const nameIndex = headers.findIndex(h => h.toLowerCase() === 'name');
+                    const emailIndex = headers.findIndex(h => h.toLowerCase() === 'email');
+                    const financialStatusIndex = headers.findIndex(h => h.toLowerCase() === 'financial status');
+                    const fulfillmentStatusIndex = headers.findIndex(h => h.toLowerCase() === 'fulfillment status');
+                    const lineitemNameIndex = headers.findIndex(h => h.toLowerCase() === 'lineitem name');
+                    const lineitemQtyIndex = headers.findIndex(h => h.toLowerCase() === 'lineitem quantity');
+                    const billingNameIndex = headers.findIndex(h => h.toLowerCase() === 'billing name');
+                    
+                    // Check if this is a Shopify export (has specific columns)
+                    const isShopifyFormat = financialStatusIndex !== -1 && lineitemNameIndex !== -1;
+                    
+                    if (isShopifyFormat) {
+                        // Shopify format - group line items by order number
+                        const ordersMap = {};
+                        
+                        for (let i = 1; i < lines.length; i++) {
+                            const parts = parseCSVLine(lines[i]);
+                            const orderNumber = parts[nameIndex]?.trim() || '';
+                            
+                            if (!orderNumber || !orderNumber.startsWith('#')) continue;
+                            
+                            // Create or get existing order
+                            if (!ordersMap[orderNumber]) {
+                                const customerName = parts[billingNameIndex]?.trim() || parts[emailIndex]?.trim() || 'Unknown Customer';
+                                const isPaid = parts[financialStatusIndex]?.toLowerCase() === 'paid';
+                                const isShipped = parts[fulfillmentStatusIndex]?.toLowerCase() === 'fulfilled';
+                                
+                                ordersMap[orderNumber] = {
+                                    id: nextOrderId++,
+                                    name: customerName,
+                                    shopifyOrderNumber: orderNumber,
+                                    paid: isPaid,
+                                    shipped: isShipped,
+                                    tracking: '',
+                                    products: []
+                                };
+                            }
+                            
+                            // Add line item
+                            const lineitemName = parts[lineitemNameIndex]?.trim() || '';
+                            const lineitemQty = parseInt(parts[lineitemQtyIndex]) || 0;
+                            
+                            if (lineitemName && lineitemQty > 0) {
+                                ordersMap[orderNumber].products.push({
+                                    name: lineitemName,
+                                    quantity: lineitemQty
+                                });
+                            }
                         }
-                    });
-                    if (order.name) orders.push(order);
+                        
+                        orders = orders.concat(Object.values(ordersMap));
+                        showToast(`Imported ${Object.keys(ordersMap).length} orders from Shopify`);
+                    } else {
+                        // Simple format - one order per line
+                        const simpleHeaders = lines[0].split(',').map(h => h.trim().toLowerCase());
+                        for (let i = 1; i < lines.length; i++) {
+                            const parts = lines[i].split(',').map(p => p.trim());
+                            const order = { id: nextOrderId++ };
+                            
+                            simpleHeaders.forEach((header, index) => {
+                                if (header === 'name' || header === 'customer name') {
+                                    order.name = parts[index];
+                                } else if (header.includes('shopify') || header.includes('order')) {
+                                    order.shopifyOrderNumber = parts[index];
+                                } else if (header === 'paid') {
+                                    order.paid = parts[index].toLowerCase() === 'true' || parts[index] === '1';
+                                } else if (header === 'shipped') {
+                                    order.shipped = parts[index].toLowerCase() === 'true' || parts[index] === '1';
+                                } else if (header === 'tracking') {
+                                    order.tracking = parts[index];
+                                } else {
+                                    const kitName = Object.keys(kits).find(k => k.toLowerCase() === header);
+                                    if (kitName) order[kitName.toLowerCase()] = parseInt(parts[index]) || 0;
+                                }
+                            });
+                            
+                            if (order.name) orders.push(order);
+                        }
+                        showToast(`Imported ${lines.length - 1} orders`);
+                    }
+                    
+                    saveToLocalStorage();
+                    await syncToFirebase();
+                    renderAll();
+                } catch (error) {
+                    console.error('Import error:', error);
+                    alert('Error importing CSV: ' + error.message);
                 }
-                saveToLocalStorage();
-                await syncToFirebase();
-                renderAll();
-                showToast('Orders imported');
             };
             reader.readAsText(file);
             event.target.value = '';
+        }
+        
+        // Helper function to parse CSV lines properly (handles commas in quotes)
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+            
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current.trim());
+            
+            return result;
         }
         
         function exportOrdersCSV() {
@@ -1528,23 +1627,41 @@ v1.2.0 (2025-10-28)
             if (!file) return;
             const reader = new FileReader();
             reader.onload = async function(e) {
-                const lines = e.target.result.split('\n').filter(line => line.trim());
-                if (lines.length < 2) { alert('Invalid CSV'); return; }
-                components = {};
-                for (let i = 1; i < lines.length; i++) {
-                    const parts = lines[i].split(',').map(p => p.trim());
-                    if (parts.length >= 4) {
-                        components[parts[0]] = {
+                try {
+                    const text = e.target.result;
+                    const lines = text.split('\n').filter(line => line.trim());
+                    if (lines.length < 2) { alert('Invalid CSV'); return; }
+                    
+                    components = {};
+                    let importedCount = 0;
+                    
+                    for (let i = 1; i < lines.length; i++) {
+                        const parts = lines[i].split(',').map(p => p.trim());
+                        
+                        // Skip section headers or invalid rows
+                        if (parts.length < 4) continue;
+                        const name = parts[0];
+                        if (!name || name.startsWith('===') || name === 'Component') continue;
+                        
+                        // Stop if we hit another section
+                        if (name === 'Kit Name' || name.startsWith('===')) break;
+                        
+                        components[name] = {
                             onHand: parseInt(parts[1]) || 0,
                             onOrder: parseInt(parts[2]) || 0,
                             eta: parts[3] || ''
                         };
+                        importedCount++;
                     }
+                    
+                    saveToLocalStorage();
+                    await syncToFirebase();
+                    renderAll();
+                    showToast(`Imported ${importedCount} components`);
+                } catch (error) {
+                    console.error('Import error:', error);
+                    alert('Error importing inventory: ' + error.message);
                 }
-                saveToLocalStorage();
-                await syncToFirebase();
-                renderAll();
-                showToast('Inventory imported');
             };
             reader.readAsText(file);
             event.target.value = '';

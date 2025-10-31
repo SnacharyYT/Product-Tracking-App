@@ -2,31 +2,25 @@
 <html lang="en">
 <!--
 Budget Build Club Inventory Manager
-Version: 2.1.0
-Last Updated: 2025-10-29
+Version: 2.2.0
+Last Updated: 2025-10-31
 
-CHANGELOG:
-v2.1.0 (2025-10-29)
-- NEW: Inventory automatically deducts components when order is marked as shipped
-- NEW: Component metadata: source (Amazon, McMaster, SendCutSend, Other), part number with hyperlink
-- NEW: Component type field: Purchased vs Make (only S13 Cap is "Make" by default)
-- NEW: Shopping List section above components table, auto-updates when stock runs low
-- NEW: Shopping list sortable by vendor and component type (Purchased/Make)
-- NEW: CSV import now updates existing orders by Shopify order number (no duplicates)
-- IMPROVED: Component modal now includes source and part number fields
-- IMPROVED: Better organization of inventory section with shopping list
+CHANGELOG (v2.2.0):
+- NEW: Editable business name at top of page (click to edit)
+- NEW: Separate part number and product link fields in components
+- NEW: Components table auto-sorts by source, then alphabetically
+- NEW: Shopping list filter dropdown (Show only: All, by vendor, Purchased/Make)
+- IMPROVED: Part number displays as clickable hyperlink in tables
+- IMPROVED: Product link displays if no part number is available
+- FIXED: CSV import now properly compares and updates existing orders (no duplicates)
+- FIXED: CSV import only updates orders with actual changes
 
-v2.0.3 (2025-10-29)
-- CRITICAL FIX: Kits now properly load and display in Kits section
-- Fixed Firebase sync logic that was overwriting kits with empty data
-- Kits now auto-initialize to Firebase if missing
-- Added better debug logging for kit loading
-- Improved initialization order to prevent data loss
+Previous versions available in CHANGELOG files.
 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Budget Build Club Inventory Manager v2.1.0</title>
+    <title>Budget Build Club Inventory Manager v2.2.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -163,6 +157,19 @@ v2.0.3 (2025-10-29)
         .header h1 {
             font-size: 32px;
             margin-bottom: 10px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        
+        .header h1:hover {
+            opacity: 0.9;
+        }
+        
+        .header h1.editing {
+            background: rgba(255, 255, 255, 0.2);
+            padding: 5px 15px;
+            border-radius: 8px;
+            outline: 2px solid white;
         }
         
         .stats-grid {
@@ -282,27 +289,6 @@ v2.0.3 (2025-10-29)
             text-transform: uppercase;
             font-size: 12px;
             letter-spacing: 0.5px;
-            cursor: pointer;
-            user-select: none;
-        }
-        
-        th:hover {
-            background: #5568d3;
-        }
-        
-        th.sortable::after {
-            content: ' â†•';
-            opacity: 0.5;
-        }
-        
-        th.sorted-asc::after {
-            content: ' â†'';
-            opacity: 1;
-        }
-        
-        th.sorted-desc::after {
-            content: ' â†"';
-            opacity: 1;
         }
         
         td {
@@ -480,19 +466,19 @@ v2.0.3 (2025-10-29)
             opacity: 1;
         }
         
-        .sort-controls {
+        .filter-controls {
             display: flex;
             gap: 10px;
             margin-bottom: 15px;
             align-items: center;
         }
         
-        .sort-controls label {
+        .filter-controls label {
             font-weight: 600;
             color: #555;
         }
         
-        .sort-controls select {
+        .filter-controls select {
             padding: 8px 12px;
             border: 2px solid #e5e7eb;
             border-radius: 6px;
@@ -507,8 +493,8 @@ v2.0.3 (2025-10-29)
     <!-- Login Screen -->
     <div id="loginContainer" class="login-container">
         <div class="login-box">
-            <h1>🔐 Login Required</h1>
-            <p>Budget Build Club Inventory Manager v2.1.0</p>
+            <h1>🔒 Login Required</h1>
+            <p>Budget Build Club Inventory Manager v2.2.0</p>
             
             <div id="loginError" class="error-message"></div>
             
@@ -535,9 +521,9 @@ v2.0.3 (2025-10-29)
     <div id="appContainer" class="app-container">
         <div class="container">
             <div class="header">
-                <div class="version-badge">v2.1.0</div>
+                <div class="version-badge">v2.2.0</div>
                 <button class="logout-btn" onclick="handleLogout()">Logout</button>
-                <h1>🛠️ COP Kits Inventory Manager</h1>
+                <h1 id="businessName" contenteditable="true" onclick="selectAllText(this)" onblur="saveBusinessName()" onkeydown="handleBusinessNameKeypress(event)">🛠️ COP Kits Inventory Manager</h1>
                 <p>Track orders, inventory, and profits in real-time</p>
                 <div id="firebaseStatus" class="firebase-status-pill offline" onclick="manualSync()">
                     <span id="firebaseStatusText">Offline Mode</span>
@@ -752,8 +738,12 @@ v2.0.3 (2025-10-29)
                 </select>
             </div>
             <div class="form-group">
-                <label>Part Number / Product Link</label>
-                <input type="text" id="editComponentPartNumber" placeholder="e.g., B07XYZ1234 or full URL">
+                <label>Part Number</label>
+                <input type="text" id="editComponentPartNumber" placeholder="e.g., B07XYZ1234">
+            </div>
+            <div class="form-group">
+                <label>Product Link (URL)</label>
+                <input type="text" id="editComponentProductLink" placeholder="e.g., https://www.amazon.com/...">
             </div>
             <div class="form-group">
                 <label>On Hand</label>
@@ -894,7 +884,7 @@ v2.0.3 (2025-10-29)
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     
     <script>
-        const APP_VERSION = '2.1.0';
+        const APP_VERSION = '2.2.0';
         let orders = [];
         let components = {};
         let kits = {};
@@ -904,7 +894,8 @@ v2.0.3 (2025-10-29)
         let currentEditKit = null;
         let currentShipOrderId = null;
         let firebaseAvailable = false;
-        let shoppingListSortBy = 'source';
+        let shoppingListFilter = 'all';
+        let businessName = '🛠️ COP Kits Inventory Manager';
         
         // Kit name mapping for Shopify CSV import
         const KIT_NAME_MAP = {
@@ -914,6 +905,42 @@ v2.0.3 (2025-10-29)
             'Toyota 1JZ/2JZ Smart Coil (1NZ) Bracket - Single': '1NZ COP Adapter',
             '2JZ-GE to 2JZ-GTE FFFIM Adapter - 2JZ': '2JZ Intake Adapter'
         };
+        
+        // Business name functions
+        function selectAllText(element) {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            const sel = window.getSelection();
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+        
+        function handleBusinessNameKeypress(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                event.target.blur();
+            }
+        }
+        
+        function saveBusinessName() {
+            const nameElement = document.getElementById('businessName');
+            businessName = nameElement.textContent.trim();
+            if (!businessName) {
+                businessName = '🛠️ COP Kits Inventory Manager';
+                nameElement.textContent = businessName;
+            }
+            localStorage.setItem('bbc_businessName', businessName);
+            syncToFirebase();
+            showToast('Business name updated');
+        }
+        
+        function loadBusinessName() {
+            const saved = localStorage.getItem('bbc_businessName');
+            if (saved) {
+                businessName = saved;
+                document.getElementById('businessName').textContent = businessName;
+            }
+        }
         
         // Login handling
         async function handleLogin() {
@@ -966,104 +993,100 @@ v2.0.3 (2025-10-29)
             console.log(`Initializing Budget Build Club Inventory Manager v${APP_VERSION}`);
             initializeDefaultData();
             loadFromLocalStorage();
+            loadBusinessName();
             tryLoadFromFirebase();
         }
         
         // Initialize default components and kits if they don't exist
         function initializeDefaultData() {
             console.log('=== INITIALIZING DEFAULT DATA ===');
-            console.log('Current components count:', Object.keys(components).length);
-            console.log('Current kits count:', Object.keys(kits).length);
             
-            // Only initialize if completely empty
             if (Object.keys(components).length === 0) {
                 console.log('✓ Initializing default components...');
                 components = {
                     "4x4x18\" Box": { 
                         onHand: 40, onOrder: 0, eta: "", 
                         costType: "box", boxSize: 25, costPerBox: 39,
-                        type: "purchased", source: "Amazon", partNumber: ""
+                        type: "purchased", source: "Amazon", partNumber: "", productLink: ""
                     },
                     "0.5x0.25x0.3125\" Spacer": { 
                         onHand: 98, onOrder: 0, eta: "", 
                         costType: "box", boxSize: 50, costPerBox: 24,
-                        type: "purchased", source: "McMaster", partNumber: ""
+                        type: "purchased", source: "McMaster", partNumber: "", productLink: ""
                     },
                     "0.5x0.25x1.375\" Spacer": { 
                         onHand: 0, onOrder: 0, eta: "", 
                         costType: "piece", costPerPiece: 3.94,
-                        type: "purchased", source: "McMaster", partNumber: ""
+                        type: "purchased", source: "McMaster", partNumber: "", productLink: ""
                     },
                     "M6x30mm Socket Head Screw": { 
                         onHand: 100, onOrder: 0, eta: "", 
                         costType: "box", boxSize: 50, costPerBox: 12.46,
-                        type: "purchased", source: "McMaster", partNumber: ""
+                        type: "purchased", source: "McMaster", partNumber: "", productLink: ""
                     },
                     "M6x50mm Hex Drive Flat Head": { 
                         onHand: 0, onOrder: 0, eta: "", 
                         costType: "box", boxSize: 10, costPerBox: 6.26,
-                        type: "purchased", source: "McMaster", partNumber: ""
+                        type: "purchased", source: "McMaster", partNumber: "", productLink: ""
                     },
                     "M6 Flat Washer": { 
                         onHand: 161, onOrder: 0, eta: "", 
                         costType: "box", boxSize: 100, costPerBox: 6.58,
-                        type: "purchased", source: "McMaster", partNumber: ""
+                        type: "purchased", source: "McMaster", partNumber: "", productLink: ""
                     },
                     "M6 Split Washer": { 
                         onHand: 191, onOrder: 0, eta: "", 
                         costType: "box", boxSize: 100, costPerBox: 5.29,
-                        type: "purchased", source: "McMaster", partNumber: ""
+                        type: "purchased", source: "McMaster", partNumber: "", productLink: ""
                     },
                     "M6x65mm Hex Drive Flat Head": { 
                         onHand: 49, onOrder: 0, eta: "", 
                         costType: "box", boxSize: 10, costPerBox: 6.77,
-                        type: "purchased", source: "McMaster", partNumber: ""
+                        type: "purchased", source: "McMaster", partNumber: "", productLink: ""
                     },
                     "M8x65mm Hex Drive Flat Head": { 
                         onHand: 17, onOrder: 0, eta: "", 
                         costType: "box", boxSize: 5, costPerBox: 6.0,
-                        type: "purchased", source: "McMaster", partNumber: ""
+                        type: "purchased", source: "McMaster", partNumber: "", productLink: ""
                     },
                     "M8x18mm Hex Drive Flat Head Screw": { 
                         onHand: 0, onOrder: 0, eta: "", 
                         costType: "box", boxSize: 10, costPerBox: 6.69,
-                        type: "purchased", source: "McMaster", partNumber: ""
+                        type: "purchased", source: "McMaster", partNumber: "", productLink: ""
                     },
                     "S13 Bracket": { 
                         onHand: 12, onOrder: 0, eta: "", 
                         costType: "piece", costPerPiece: 28.52,
-                        type: "purchased", source: "SendCutSend", partNumber: ""
+                        type: "purchased", source: "SendCutSend", partNumber: "", productLink: ""
                     },
                     "S14 Bracket": { 
                         onHand: 6, onOrder: 0, eta: "", 
                         costType: "piece", costPerPiece: 32.80,
-                        type: "purchased", source: "SendCutSend", partNumber: ""
+                        type: "purchased", source: "SendCutSend", partNumber: "", productLink: ""
                     },
                     "1NZ Bracket": { 
                         onHand: 0, onOrder: 0, eta: "", 
                         costType: "piece", costPerPiece: 28.52,
-                        type: "purchased", source: "SendCutSend", partNumber: ""
+                        type: "purchased", source: "SendCutSend", partNumber: "", productLink: ""
                     },
                     "2JZ Intake Bracket": { 
                         onHand: 0, onOrder: 0, eta: "", 
                         costType: "box", boxSize: 5, costPerBox: 259.5,
-                        type: "purchased", source: "SendCutSend", partNumber: ""
+                        type: "purchased", source: "SendCutSend", partNumber: "", productLink: ""
                     },
                     "Cap Part": { 
                         onHand: 99, onOrder: 0, eta: "", 
                         costType: "piece", costPerPiece: 5.00,
-                        type: "make", source: "Other", partNumber: ""
+                        type: "make", source: "Other", partNumber: "", productLink: ""
                     }
                 };
-                console.log('✓ Components initialized:', Object.keys(components).length, 'components');
             } else {
-                console.log('✗ Skipping components - already exist');
-                
-                // Migrate old components to add new fields if missing
+                // Migrate old components
                 for (const [name, comp] of Object.entries(components)) {
                     if (!comp.type) comp.type = name === "Cap Part" ? "make" : "purchased";
                     if (!comp.source) comp.source = name === "Cap Part" ? "Other" : "McMaster";
-                    if (!comp.partNumber) comp.partNumber = "";
+                    if (comp.partNumber === undefined) comp.partNumber = "";
+                    if (comp.productLink === undefined) comp.productLink = "";
                 }
             }
             
@@ -1126,11 +1149,6 @@ v2.0.3 (2025-10-29)
                         }
                     }
                 };
-                console.log('✓ Kits initialized:', Object.keys(kits).length, 'kits');
-                console.log('Kit names:', Object.keys(kits).join(', '));
-            } else {
-                console.log('✗ Skipping kits - already exist');
-                console.log('Existing kit names:', Object.keys(kits).join(', '));
             }
             
             console.log('=== END DEFAULT DATA INIT ===');
@@ -1163,6 +1181,7 @@ v2.0.3 (2025-10-29)
                 localStorage.setItem('bbc_components', JSON.stringify(components));
                 localStorage.setItem('bbc_kits', JSON.stringify(kits));
                 localStorage.setItem('bbc_nextOrderId', nextOrderId.toString());
+                localStorage.setItem('bbc_businessName', businessName);
             } catch (error) {
                 console.error('Error saving to localStorage:', error);
             }
@@ -1196,66 +1215,56 @@ v2.0.3 (2025-10-29)
                 let firebaseNextOrderId = 1;
                 if (docSnap.exists()) firebaseNextOrderId = docSnap.data().value;
                 
+                // Load business name
+                const nameRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'businessName');
+                const nameSnap = await window.firebaseGetDoc(nameRef);
+                if (nameSnap.exists()) {
+                    businessName = nameSnap.data().value;
+                    document.getElementById('businessName').textContent = businessName;
+                }
+                
                 console.log(`Firebase has: ${firebaseOrders.length} orders, ${Object.keys(firebaseComponents).length} components, ${Object.keys(firebaseKits).length} kits`);
-                console.log(`Local has: ${orders.length} orders, ${Object.keys(components).length} components, ${Object.keys(kits).length} kits`);
                 
                 let needsSync = false;
                 
                 // Handle components
                 if (Object.keys(firebaseComponents).length > 0) {
-                    console.log('✓ Using Firebase components');
                     components = firebaseComponents;
                     
-                    // Migrate old data to add new fields
+                    // Migrate old data
                     for (const [name, comp] of Object.entries(components)) {
                         if (!comp.type) comp.type = name === "Cap Part" ? "make" : "purchased";
                         if (!comp.source) comp.source = "McMaster";
-                        if (!comp.partNumber) comp.partNumber = "";
+                        if (comp.partNumber === undefined) comp.partNumber = "";
+                        if (comp.productLink === undefined) comp.productLink = "";
                     }
                 } else if (Object.keys(components).length > 0) {
-                    console.log('⚠ Firebase missing components - will push local defaults');
                     needsSync = true;
-                } else {
-                    console.log('⚠ Both empty - using defaults');
                 }
                 
                 // Handle kits
                 if (Object.keys(firebaseKits).length > 0) {
-                    console.log('✓ Using Firebase kits:', Object.keys(firebaseKits).join(', '));
                     kits = firebaseKits;
                 } else if (Object.keys(kits).length > 0) {
-                    console.log('⚠ Firebase missing kits - will push local defaults');
-                    console.log('Local kits to push:', Object.keys(kits).join(', '));
-                    needsSync = true;
-                } else {
-                    console.log('⚠ Both empty - initializing defaults');
-                    initializeDefaultData();
                     needsSync = true;
                 }
                 
                 // Handle orders
                 if (firebaseOrders.length > 0) {
-                    console.log('✓ Using Firebase orders');
                     orders = firebaseOrders;
                     nextOrderId = firebaseNextOrderId;
                 }
                 
-                // Save everything to localStorage
                 saveToLocalStorage();
-                
-                // Render with current data
                 renderAll();
                 
-                // Push to Firebase if needed
                 if (needsSync) {
-                    console.log('🔄 Syncing local defaults to Firebase...');
                     await syncToFirebase();
                     showToast('Initialized Firebase with default data');
                 }
                 
                 firebaseAvailable = true;
                 updateFirebaseStatus('connected', 'Connected');
-                console.log('=== FIREBASE LOAD COMPLETE ===');
             } catch (error) {
                 console.error('Firebase error:', error);
                 firebaseAvailable = false;
@@ -1266,13 +1275,10 @@ v2.0.3 (2025-10-29)
         
         async function syncToFirebase() {
             if (!window.firebaseReady || !firebaseAvailable || !window.firebaseAuth.currentUser) {
-                console.log('Skipping Firebase sync - not available');
                 return;
             }
             
             updateFirebaseStatus('syncing', 'Syncing...');
-            console.log('=== SYNCING TO FIREBASE ===');
-            console.log('Syncing:', orders.length, 'orders,', Object.keys(components).length, 'components,', Object.keys(kits).length, 'kits');
             
             try {
                 const batch = window.firebaseWriteBatch(window.firebaseDB);
@@ -1293,15 +1299,16 @@ v2.0.3 (2025-10-29)
                 for (const [name, kit] of Object.entries(kits)) {
                     const kitRef = window.firebaseDoc(window.firebaseDB, 'kits', name);
                     batch.set(kitRef, kit);
-                    console.log('Syncing kit to Firebase:', name);
                 }
                 
-                // Sync nextOrderId
+                // Sync metadata
                 const nextOrderIdRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'nextOrderId');
                 batch.set(nextOrderIdRef, { value: nextOrderId });
                 
+                const businessNameRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'businessName');
+                batch.set(businessNameRef, { value: businessName });
+                
                 await batch.commit();
-                console.log('✓ Firebase sync complete');
                 updateFirebaseStatus('connected', 'Synced');
                 setTimeout(() => updateFirebaseStatus('connected', 'Connected'), 2000);
             } catch (error) {
@@ -1336,7 +1343,7 @@ v2.0.3 (2025-10-29)
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
         
-        // CSV Import Handler - with deduplication
+        // CSV Import Handler - improved deduplication
         async function handleCSVImport(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -1349,7 +1356,7 @@ v2.0.3 (2025-10-29)
                 complete: function(results) {
                     console.log('CSV parsed:', results.data.length, 'rows');
                     
-                    // Create a map of existing orders by Shopify order number
+                    // Create map of existing orders by Shopify number
                     const existingOrdersMap = new Map();
                     orders.forEach(order => {
                         if (order.shopifyOrderNumber) {
@@ -1357,34 +1364,25 @@ v2.0.3 (2025-10-29)
                         }
                     });
                     
-                    // Group by order number
-                    const orderMap = new Map();
+                    // Group CSV rows by order number
+                    const csvOrdersMap = new Map();
                     
                     results.data.forEach(row => {
                         const orderNum = row['Name']?.trim();
                         if (!orderNum || !orderNum.startsWith('#')) return;
                         
-                        if (!orderMap.has(orderNum)) {
-                            // Check if we already have this order
-                            const existingOrder = existingOrdersMap.get(orderNum);
-                            
-                            if (existingOrder) {
-                                // Update existing order
-                                orderMap.set(orderNum, existingOrder);
-                            } else {
-                                // Create new order
-                                orderMap.set(orderNum, {
-                                    id: nextOrderId++,
-                                    shopifyOrderNumber: orderNum,
-                                    name: row['Billing Name']?.trim() || row['Shipping Name']?.trim() || 'Unknown',
-                                    paid: row['Financial Status']?.toLowerCase() === 'paid',
-                                    shipped: row['Fulfillment Status']?.toLowerCase() === 'fulfilled',
-                                    tracking: ''
-                                });
-                            }
+                        if (!csvOrdersMap.has(orderNum)) {
+                            csvOrdersMap.set(orderNum, {
+                                shopifyOrderNumber: orderNum,
+                                name: row['Billing Name']?.trim() || row['Shipping Name']?.trim() || 'Unknown',
+                                paid: row['Financial Status']?.toLowerCase() === 'paid',
+                                shipped: row['Fulfillment Status']?.toLowerCase() === 'fulfilled',
+                                tracking: '',
+                                products: {}
+                            });
                         }
                         
-                        const order = orderMap.get(orderNum);
+                        const csvOrder = csvOrdersMap.get(orderNum);
                         const lineitemName = row['Lineitem name']?.trim();
                         const lineitemQty = parseInt(row['Lineitem quantity']) || 0;
                         
@@ -1401,30 +1399,83 @@ v2.0.3 (2025-10-29)
                             }
                             
                             const kitKey = kitName.toLowerCase();
-                            order[kitKey] = (order[kitKey] || 0) + lineitemQty;
+                            csvOrder.products[kitKey] = (csvOrder.products[kitKey] || 0) + lineitemQty;
                         }
                     });
                     
-                    // Update orders array - remove old versions and add updated ones
-                    const updatedOrderNumbers = new Set(Array.from(orderMap.keys()));
-                    orders = orders.filter(o => !o.shopifyOrderNumber || !updatedOrderNumbers.has(o.shopifyOrderNumber));
-                    orders.push(...Array.from(orderMap.values()));
+                    let newCount = 0;
+                    let updatedCount = 0;
+                    let unchangedCount = 0;
                     
-                    const newCount = Array.from(orderMap.values()).filter(o => !existingOrdersMap.has(o.shopifyOrderNumber)).length;
-                    const updatedCount = Array.from(orderMap.values()).filter(o => existingOrdersMap.has(o.shopifyOrderNumber)).length;
+                    // Process each CSV order
+                    csvOrdersMap.forEach((csvOrder, orderNum) => {
+                        const existingOrder = existingOrdersMap.get(orderNum);
+                        
+                        if (existingOrder) {
+                            // Check if anything changed
+                            let hasChanges = false;
+                            
+                            if (existingOrder.name !== csvOrder.name) hasChanges = true;
+                            if (existingOrder.paid !== csvOrder.paid) hasChanges = true;
+                            if (existingOrder.shipped !== csvOrder.shipped) hasChanges = true;
+                            
+                            // Check products
+                            for (const [kitKey, qty] of Object.entries(csvOrder.products)) {
+                                if ((existingOrder[kitKey] || 0) !== qty) {
+                                    hasChanges = true;
+                                    break;
+                                }
+                            }
+                            
+                            if (hasChanges) {
+                                // Update existing order
+                                existingOrder.name = csvOrder.name;
+                                existingOrder.paid = csvOrder.paid;
+                                existingOrder.shipped = csvOrder.shipped;
+                                
+                                // Update product quantities
+                                for (const [kitKey, qty] of Object.entries(csvOrder.products)) {
+                                    existingOrder[kitKey] = qty;
+                                }
+                                
+                                updatedCount++;
+                            } else {
+                                unchangedCount++;
+                            }
+                        } else {
+                            // Create new order
+                            const newOrder = {
+                                id: nextOrderId++,
+                                shopifyOrderNumber: csvOrder.shopifyOrderNumber,
+                                name: csvOrder.name,
+                                paid: csvOrder.paid,
+                                shipped: csvOrder.shipped,
+                                tracking: ''
+                            };
+                            
+                            // Add products
+                            for (const [kitKey, qty] of Object.entries(csvOrder.products)) {
+                                newOrder[kitKey] = qty;
+                            }
+                            
+                            orders.push(newOrder);
+                            newCount++;
+                        }
+                    });
                     
                     saveToLocalStorage();
                     syncToFirebase();
                     renderAll();
                     
+                    // Show appropriate message
                     if (newCount > 0 && updatedCount > 0) {
-                        showToast(`Imported ${newCount} new orders, updated ${updatedCount} existing orders!`);
+                        showToast(`Imported ${newCount} new, updated ${updatedCount} orders${unchangedCount > 0 ? `, ${unchangedCount} unchanged` : ''}!`);
                     } else if (newCount > 0) {
-                        showToast(`Imported ${newCount} new orders from Shopify!`);
+                        showToast(`Imported ${newCount} new orders!`);
                     } else if (updatedCount > 0) {
-                        showToast(`Updated ${updatedCount} existing orders!`);
+                        showToast(`Updated ${updatedCount} orders${unchangedCount > 0 ? `, ${unchangedCount} unchanged` : ''}!`);
                     } else {
-                        showToast('No new orders to import');
+                        showToast('No changes detected in CSV');
                     }
                 },
                 error: function(error) {
@@ -1445,7 +1496,6 @@ v2.0.3 (2025-10-29)
             renderShippedOrders();
         }
         
-        // Helper function to get kit quantity from order (handles name variations)
         function getKitQtyFromOrder(order, kitName) {
             const variations = [
                 kitName.toLowerCase(),
@@ -1462,7 +1512,6 @@ v2.0.3 (2025-10-29)
             return 0;
         }
         
-        // Deduct inventory when shipping
         function deductInventoryForOrder(order) {
             console.log('Deducting inventory for order:', order.id);
             
@@ -1470,20 +1519,12 @@ v2.0.3 (2025-10-29)
                 const qtyNeeded = getKitQtyFromOrder(order, kitName);
                 if (qtyNeeded === 0) continue;
                 
-                console.log(`Deducting ${qtyNeeded}x ${kitName}`);
-                
                 for (const [componentName, componentQty] of Object.entries(kit.components)) {
                     const comp = components[componentName];
-                    if (!comp) {
-                        console.warn(`Component ${componentName} not found!`);
-                        continue;
-                    }
+                    if (!comp) continue;
                     
                     const totalNeeded = componentQty * qtyNeeded;
-                    const oldOnHand = comp.onHand;
                     comp.onHand = Math.max(0, comp.onHand - totalNeeded);
-                    
-                    console.log(`  - ${componentName}: ${oldOnHand} -> ${comp.onHand} (used ${totalNeeded})`);
                 }
             }
             
@@ -1491,12 +1532,11 @@ v2.0.3 (2025-10-29)
             syncToFirebase();
         }
         
-        // Render shopping list
         function renderShoppingList() {
             const container = document.getElementById('shoppingListContainer');
             const shoppingList = [];
             
-            // Calculate what's needed for all paid unshipped orders
+            // Calculate what's needed
             const paidOrders = orders.filter(o => o.paid && !o.shipped);
             
             paidOrders.forEach(order => {
@@ -1522,6 +1562,7 @@ v2.0.3 (2025-10-29)
                                     type: comp.type || 'purchased',
                                     source: comp.source || 'Other',
                                     partNumber: comp.partNumber || '',
+                                    productLink: comp.productLink || '',
                                     onOrder: comp.onOrder || 0
                                 });
                             }
@@ -1530,53 +1571,71 @@ v2.0.3 (2025-10-29)
                 }
             });
             
-            // Sort shopping list
+            // Sort by source then alphabetically
             shoppingList.sort((a, b) => {
-                if (shoppingListSortBy === 'source') {
-                    if (a.source !== b.source) return a.source.localeCompare(b.source);
-                    if (a.type !== b.type) return a.type.localeCompare(b.type);
-                    return a.name.localeCompare(b.name);
-                } else if (shoppingListSortBy === 'type') {
-                    if (a.type !== b.type) return a.type.localeCompare(b.type);
-                    if (a.source !== b.source) return a.source.localeCompare(b.source);
-                    return a.name.localeCompare(b.name);
-                } else {
-                    return a.name.localeCompare(b.name);
-                }
+                if (a.source !== b.source) return a.source.localeCompare(b.source);
+                return a.name.localeCompare(b.name);
             });
             
             if (shoppingList.length === 0) {
-                container.innerHTML = '<div class="shopping-list-empty"><strong>✓ All components in stock!</strong><br>No items need to be ordered right now.</div>';
+                container.innerHTML = '<div class="shopping-list-empty"><strong>✅ All components in stock!</strong><br>No items need to be ordered right now.</div>';
                 return;
             }
             
-            // Group by source for better display
-            const grouped = {};
-            shoppingList.forEach(item => {
-                const key = `${item.source}|||${item.type}`;
-                if (!grouped[key]) grouped[key] = [];
-                grouped[key].push(item);
-            });
+            // Get unique sources and types for filter
+            const sources = [...new Set(shoppingList.map(item => item.source))].sort();
+            const types = [...new Set(shoppingList.map(item => item.type))];
+            
+            // Filter items
+            let filteredList = shoppingList;
+            if (shoppingListFilter !== 'all') {
+                if (shoppingListFilter === 'purchased' || shoppingListFilter === 'make') {
+                    filteredList = shoppingList.filter(item => item.type === shoppingListFilter);
+                } else {
+                    filteredList = shoppingList.filter(item => item.source === shoppingListFilter);
+                }
+            }
             
             let html = '<div class="shopping-list-alert"><h4>⚠️ Items Low in Stock</h4>';
-            html += `<div class="sort-controls">
-                <label>Sort by:</label>
-                <select onchange="shoppingListSortBy = this.value; renderShoppingList()">
-                    <option value="source" ${shoppingListSortBy === 'source' ? 'selected' : ''}>Source/Vendor</option>
-                    <option value="type" ${shoppingListSortBy === 'type' ? 'selected' : ''}>Type (Purchased/Make)</option>
-                    <option value="name" ${shoppingListSortBy === 'name' ? 'selected' : ''}>Component Name</option>
+            html += `<div class="filter-controls">
+                <label>Show only:</label>
+                <select onchange="shoppingListFilter = this.value; renderShoppingList()">
+                    <option value="all" ${shoppingListFilter === 'all' ? 'selected' : ''}>All Items (${shoppingList.length})</option>
+                    <optgroup label="By Source">`;
+            
+            sources.forEach(source => {
+                const count = shoppingList.filter(item => item.source === source).length;
+                html += `<option value="${source}" ${shoppingListFilter === source ? 'selected' : ''}>${source} (${count})</option>`;
+            });
+            
+            html += `</optgroup>
+                    <optgroup label="By Type">`;
+            
+            types.forEach(type => {
+                const count = shoppingList.filter(item => item.type === type).length;
+                const label = type.charAt(0).toUpperCase() + type.slice(1);
+                html += `<option value="${type}" ${shoppingListFilter === type ? 'selected' : ''}>${label} (${count})</option>`;
+            });
+            
+            html += `</optgroup>
                 </select>
             </div></div>`;
             
-            html += '<table><thead><tr><th>Component</th><th>Type</th><th>Source</th><th>Part Number</th><th>Need to Order</th><th>Already On Order</th></tr></thead><tbody>';
+            html += '<table><thead><tr><th>Component</th><th>Type</th><th>Source</th><th>Part Info</th><th>Need to Order</th><th>Already On Order</th></tr></thead><tbody>';
             
-            shoppingList.forEach(item => {
+            filteredList.forEach(item => {
                 const typeBadge = `<span class="type-badge type-${item.type}">${item.type}</span>`;
-                const partLink = item.partNumber ? 
-                    (item.partNumber.startsWith('http') ? 
-                        `<a href="${item.partNumber}" target="_blank" class="part-link">${item.partNumber}</a>` :
-                        `<span>${item.partNumber}</span>`) :
-                    '<span style="color: #999;">-</span>';
+                
+                let partInfo = '<span style="color: #999;">-</span>';
+                if (item.partNumber) {
+                    if (item.productLink) {
+                        partInfo = `<a href="${item.productLink}" target="_blank" class="part-link">${item.partNumber}</a>`;
+                    } else {
+                        partInfo = `<span style="font-weight: 600;">${item.partNumber}</span>`;
+                    }
+                } else if (item.productLink) {
+                    partInfo = `<a href="${item.productLink}" target="_blank" class="part-link">View Product</a>`;
+                }
                 
                 const onOrderStatus = item.onOrder >= item.shortage ? 
                     `<span style="color: #10b981; font-weight: bold;">${item.onOrder} ✓</span>` :
@@ -1586,7 +1645,7 @@ v2.0.3 (2025-10-29)
                     <td><strong>${item.name}</strong></td>
                     <td>${typeBadge}</td>
                     <td>${item.source}</td>
-                    <td>${partLink}</td>
+                    <td>${partInfo}</td>
                     <td><strong style="color: #ef4444;">${item.shortage}</strong></td>
                     <td>${onOrderStatus}</td>
                 </tr>`;
@@ -1776,7 +1835,20 @@ v2.0.3 (2025-10-29)
             const tbody = document.getElementById('inventoryBody');
             tbody.innerHTML = '';
             
-            for (const [name, comp] of Object.entries(components)) {
+            // Sort components by source, then alphabetically
+            const sortedComponents = Object.entries(components).sort((a, b) => {
+                const [nameA, compA] = a;
+                const [nameB, compB] = b;
+                const sourceA = compA.source || 'Other';
+                const sourceB = compB.source || 'Other';
+                
+                if (sourceA !== sourceB) {
+                    return sourceA.localeCompare(sourceB);
+                }
+                return nameA.localeCompare(nameB);
+            });
+            
+            for (const [name, comp] of sortedComponents) {
                 let needed = 0;
                 
                 const paidOrders = orders.filter(o => o.paid && !o.shipped);
@@ -1805,11 +1877,17 @@ v2.0.3 (2025-10-29)
                 }
                 
                 const typeBadge = `<span class="type-badge type-${comp.type || 'purchased'}">${comp.type || 'purchased'}</span>`;
-                const partLink = comp.partNumber ? 
-                    (comp.partNumber.startsWith('http') ? 
-                        `<a href="${comp.partNumber}" target="_blank" class="part-link">${comp.partNumber}</a>` :
-                        `<span>${comp.partNumber}</span>`) :
-                    '<span style="color: #999;">-</span>';
+                
+                let partInfo = '<span style="color: #999;">-</span>';
+                if (comp.partNumber) {
+                    if (comp.productLink) {
+                        partInfo = `<a href="${comp.productLink}" target="_blank" class="part-link">${comp.partNumber}</a>`;
+                    } else {
+                        partInfo = `<span style="font-weight: 600;">${comp.partNumber}</span>`;
+                    }
+                } else if (comp.productLink) {
+                    partInfo = `<a href="${comp.productLink}" target="_blank" class="part-link">View Product</a>`;
+                }
                 
                 const row = document.createElement('tr');
                 row.onclick = () => editComponent(name);
@@ -1817,7 +1895,7 @@ v2.0.3 (2025-10-29)
                     <td><strong>${name}</strong></td>
                     <td>${typeBadge}</td>
                     <td>${comp.source || 'Other'}</td>
-                    <td>${partLink}</td>
+                    <td>${partInfo}</td>
                     <td>${needed}</td>
                     <td><span class="${onHandClass}">${comp.onHand}</span></td>
                     <td>${comp.onOrder}</td>
@@ -2244,7 +2322,6 @@ v2.0.3 (2025-10-29)
             
             closeNewOrderModal();
             
-            // Check if order can be fulfilled
             const canShip = canFulfillOrder(order);
             const warningDiv = document.getElementById('shipOrderWarning');
             const warningText = document.getElementById('shipOrderWarningText');
@@ -2291,7 +2368,6 @@ v2.0.3 (2025-10-29)
             order.shipped = true;
             order.tracking = tracking;
             
-            // Deduct inventory
             deductInventoryForOrder(order);
             
             closeShipOrderModal();
@@ -2325,6 +2401,7 @@ v2.0.3 (2025-10-29)
             document.getElementById('editComponentType').value = 'purchased';
             document.getElementById('editComponentSource').value = 'Amazon';
             document.getElementById('editComponentPartNumber').value = '';
+            document.getElementById('editComponentProductLink').value = '';
             document.getElementById('editComponentOnHand').value = '0';
             document.getElementById('editComponentOnOrder').value = '0';
             document.getElementById('editComponentEta').value = '';
@@ -2361,6 +2438,7 @@ v2.0.3 (2025-10-29)
             const type = document.getElementById('editComponentType').value;
             const source = document.getElementById('editComponentSource').value;
             const partNumber = document.getElementById('editComponentPartNumber').value.trim();
+            const productLink = document.getElementById('editComponentProductLink').value.trim();
             const onHand = parseInt(document.getElementById('editComponentOnHand').value) || 0;
             const onOrder = parseInt(document.getElementById('editComponentOnOrder').value) || 0;
             const eta = document.getElementById('editComponentEta').value.trim();
@@ -2371,7 +2449,7 @@ v2.0.3 (2025-10-29)
                 return;
             }
             
-            let costData = { costType, type, source, partNumber };
+            let costData = { costType, type, source, partNumber, productLink };
             if (costType === 'piece') {
                 const costPerPiece = parseFloat(document.getElementById('editComponentCostPiece').value) || 0;
                 costData.costPerPiece = costPerPiece;
@@ -2423,6 +2501,7 @@ v2.0.3 (2025-10-29)
             document.getElementById('editComponentType').value = comp.type || 'purchased';
             document.getElementById('editComponentSource').value = comp.source || 'Amazon';
             document.getElementById('editComponentPartNumber').value = comp.partNumber || '';
+            document.getElementById('editComponentProductLink').value = comp.productLink || '';
             document.getElementById('editComponentOnHand').value = comp.onHand;
             document.getElementById('editComponentOnOrder').value = comp.onOrder;
             document.getElementById('editComponentEta').value = comp.eta;
@@ -2720,6 +2799,9 @@ v2.0.3 (2025-10-29)
         window.handleLogout = handleLogout;
         window.manualSync = manualSync;
         window.initializeApp = initializeApp;
+        window.selectAllText = selectAllText;
+        window.handleBusinessNameKeypress = handleBusinessNameKeypress;
+        window.saveBusinessName = saveBusinessName;
     </script>
 </body>
 </html>

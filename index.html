@@ -2,25 +2,23 @@
 <html lang="en">
 <!--
 Budget Build Club Inventory Manager
-Version: 2.2.0
+Version: 2.3.0
 Last Updated: 2025-10-31
 
-CHANGELOG (v2.2.0):
-- NEW: Editable business name at top of page (click to edit)
-- NEW: Separate part number and product link fields in components
-- NEW: Components table auto-sorts by source, then alphabetically
-- NEW: Shopping list filter dropdown (Show only: All, by vendor, Purchased/Make)
-- IMPROVED: Part number displays as clickable hyperlink in tables
-- IMPROVED: Product link displays if no part number is available
-- FIXED: CSV import now properly compares and updates existing orders (no duplicates)
-- FIXED: CSV import only updates orders with actual changes
-
-Previous versions available in CHANGELOG files.
+CHANGELOG (v2.3.0):
+- NEW: Order number displayed in shipped orders table
+- NEW: Order number shown in order summary card
+- NEW: Shipping cost from Shopify CSV added to order summary
+- NEW: Time period filter for dashboard metrics (Current, Since Last Update, Last Month, This Year, All Time)
+- NEW: "Make" type components have different source options (CNC, 3D Print, Other)
+- NEW: Custom source input - add your own sources to dropdowns
+- IMPROVED: Inventory status hidden for shipped orders in summary
+- IMPROVED: Source dropdowns are context-aware based on component type
 -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Budget Build Club Inventory Manager v2.2.0</title>
+    <title>Budget Build Club Inventory Manager v2.3.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
@@ -161,9 +159,7 @@ Previous versions available in CHANGELOG files.
             transition: opacity 0.2s;
         }
         
-        .header h1:hover {
-            opacity: 0.9;
-        }
+        .header h1:hover { opacity: 0.9; }
         
         .header h1.editing {
             background: rgba(255, 255, 255, 0.2);
@@ -208,6 +204,32 @@ Previous versions available in CHANGELOG files.
             font-size: 14px;
             color: #999;
             margin-top: 4px;
+        }
+        
+        .period-filter {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            padding: 15px 30px;
+            background: #f8f9fa;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        
+        .period-filter label {
+            font-weight: 600;
+            color: #555;
+        }
+        
+        .period-filter select {
+            padding: 8px 16px;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: #667eea;
+            cursor: pointer;
+            background: white;
         }
         
         .content { padding: 30px; }
@@ -485,6 +507,27 @@ Previous versions available in CHANGELOG files.
             font-size: 14px;
             cursor: pointer;
         }
+        
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 8px 0;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .info-row:last-child {
+            border-bottom: none;
+        }
+        
+        .info-label {
+            color: #666;
+            font-weight: 500;
+        }
+        
+        .info-value {
+            font-weight: 600;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -494,7 +537,7 @@ Previous versions available in CHANGELOG files.
     <div id="loginContainer" class="login-container">
         <div class="login-box">
             <h1>🔒 Login Required</h1>
-            <p>Budget Build Club Inventory Manager v2.2.0</p>
+            <p>Budget Build Club Inventory Manager v2.3.0</p>
             
             <div id="loginError" class="error-message"></div>
             
@@ -521,7 +564,7 @@ Previous versions available in CHANGELOG files.
     <div id="appContainer" class="app-container">
         <div class="container">
             <div class="header">
-                <div class="version-badge">v2.2.0</div>
+                <div class="version-badge">v2.3.0</div>
                 <button class="logout-btn" onclick="handleLogout()">Logout</button>
                 <h1 id="businessName" contenteditable="true" onclick="selectAllText(this)" onblur="saveBusinessName()" onkeydown="handleBusinessNameKeypress(event)">🛠️ COP Kits Inventory Manager</h1>
                 <p>Track orders, inventory, and profits in real-time</p>
@@ -530,11 +573,22 @@ Previous versions available in CHANGELOG files.
                 </div>
             </div>
             
+            <div class="period-filter">
+                <label>📊 Time Period:</label>
+                <select id="periodFilter" onchange="updatePeriodFilter()">
+                    <option value="current">Current (Active Orders)</option>
+                    <option value="last_update">Since Last Update</option>
+                    <option value="last_month">Last Month</option>
+                    <option value="this_year">This Year</option>
+                    <option value="all_time">All Time</option>
+                </select>
+            </div>
+            
             <div class="stats-grid">
                 <div class="stat-card">
                     <h3>Total Orders</h3>
                     <div class="value" id="totalOrders">0</div>
-                    <div class="subvalue">Active orders</div>
+                    <div class="subvalue" id="totalOrdersSub">Active orders</div>
                 </div>
                 <div class="stat-card">
                     <h3>Ready to Ship</h3>
@@ -644,8 +698,9 @@ Previous versions available in CHANGELOG files.
                     <table>
                         <thead>
                             <tr>
+                                <th>Order #</th>
                                 <th>Customer</th>
-                                <th>Order</th>
+                                <th>Items</th>
                                 <th>Amount</th>
                                 <th>Tracking</th>
                                 <th>Actions</th>
@@ -662,6 +717,12 @@ Previous versions available in CHANGELOG files.
     <div id="newOrderModal" class="modal">
         <div class="modal-content">
             <h3 id="orderModalTitle">Add New Order</h3>
+            
+            <!-- Order Info Section -->
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                <div id="orderInfoSection"></div>
+            </div>
+            
             <div class="form-group">
                 <label>Customer Name</label>
                 <input type="text" id="newOrderName" placeholder="Enter customer name">
@@ -684,7 +745,7 @@ Previous versions available in CHANGELOG files.
                     <div id="orderComponentsNeeded"></div>
                 </div>
                 
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                <div id="orderInventoryStatusSection" style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
                     <h4 style="margin: 0 0 15px 0; color: #333;">Inventory Status</h4>
                     <div id="orderInventoryStatus"></div>
                 </div>
@@ -723,19 +784,20 @@ Previous versions available in CHANGELOG files.
             </div>
             <div class="form-group">
                 <label>Type</label>
-                <select id="editComponentType">
+                <select id="editComponentType" onchange="updateSourceOptions()">
                     <option value="purchased">Purchased</option>
                     <option value="make">Make</option>
                 </select>
             </div>
             <div class="form-group">
                 <label>Source/Vendor</label>
-                <select id="editComponentSource">
-                    <option value="Amazon">Amazon</option>
-                    <option value="McMaster">McMaster-Carr</option>
-                    <option value="SendCutSend">SendCutSend</option>
-                    <option value="Other">Other</option>
+                <select id="editComponentSource" onchange="handleSourceChange()">
+                    <!-- Options populated dynamically -->
                 </select>
+            </div>
+            <div class="form-group" id="customSourceGroup" style="display: none;">
+                <label>Custom Source Name</label>
+                <input type="text" id="editComponentCustomSource" placeholder="Enter source name">
             </div>
             <div class="form-group">
                 <label>Part Number</label>
@@ -884,7 +946,7 @@ Previous versions available in CHANGELOG files.
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.0/papaparse.min.js"></script>
     
     <script>
-        const APP_VERSION = '2.2.0';
+        const APP_VERSION = '2.3.0';
         let orders = [];
         let components = {};
         let kits = {};
@@ -896,6 +958,12 @@ Previous versions available in CHANGELOG files.
         let firebaseAvailable = false;
         let shoppingListFilter = 'all';
         let businessName = '🛠️ COP Kits Inventory Manager';
+        let currentPeriod = 'current';
+        let lastUpdateDate = null;
+        
+        // Custom sources
+        let customPurchasedSources = [];
+        let customMakeSources = [];
         
         // Kit name mapping for Shopify CSV import
         const KIT_NAME_MAP = {
@@ -940,6 +1008,124 @@ Previous versions available in CHANGELOG files.
                 businessName = saved;
                 document.getElementById('businessName').textContent = businessName;
             }
+        }
+        
+        // Period filter functions
+        function updatePeriodFilter() {
+            currentPeriod = document.getElementById('periodFilter').value;
+            localStorage.setItem('bbc_currentPeriod', currentPeriod);
+            updateStats();
+        }
+        
+        function loadPeriodFilter() {
+            const saved = localStorage.getItem('bbc_currentPeriod');
+            if (saved) {
+                currentPeriod = saved;
+                document.getElementById('periodFilter').value = currentPeriod;
+            }
+        }
+        
+        function getFilteredOrders() {
+            const now = new Date();
+            
+            switch(currentPeriod) {
+                case 'current':
+                    return orders.filter(o => !o.shipped);
+                    
+                case 'last_update':
+                    if (!lastUpdateDate) return orders;
+                    return orders.filter(o => {
+                        const orderDate = o.createdAt ? new Date(o.createdAt) : new Date(0);
+                        return orderDate >= lastUpdateDate;
+                    });
+                    
+                case 'last_month':
+                    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+                    const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                    return orders.filter(o => {
+                        const orderDate = o.createdAt ? new Date(o.createdAt) : new Date(0);
+                        return orderDate >= lastMonth && orderDate < thisMonth;
+                    });
+                    
+                case 'this_year':
+                    const yearStart = new Date(now.getFullYear(), 0, 1);
+                    return orders.filter(o => {
+                        const orderDate = o.createdAt ? new Date(o.createdAt) : new Date(0);
+                        return orderDate >= yearStart;
+                    });
+                    
+                case 'all_time':
+                    return orders;
+                    
+                default:
+                    return orders.filter(o => !o.shipped);
+            }
+        }
+        
+        // Source options management
+        function updateSourceOptions() {
+            const type = document.getElementById('editComponentType').value;
+            const sourceSelect = document.getElementById('editComponentSource');
+            const customSourceGroup = document.getElementById('customSourceGroup');
+            
+            sourceSelect.innerHTML = '';
+            
+            if (type === 'purchased') {
+                const defaultSources = ['Amazon', 'McMaster', 'SendCutSend'];
+                [...defaultSources, ...customPurchasedSources, 'Other'].forEach(source => {
+                    const option = document.createElement('option');
+                    option.value = source;
+                    option.textContent = source;
+                    sourceSelect.appendChild(option);
+                });
+            } else if (type === 'make') {
+                const defaultSources = ['CNC', '3D Print'];
+                [...defaultSources, ...customMakeSources, 'Other'].forEach(source => {
+                    const option = document.createElement('option');
+                    option.value = source;
+                    option.textContent = source;
+                    sourceSelect.appendChild(option);
+                });
+            }
+            
+            customSourceGroup.style.display = 'none';
+        }
+        
+        function handleSourceChange() {
+            const source = document.getElementById('editComponentSource').value;
+            const customSourceGroup = document.getElementById('customSourceGroup');
+            
+            if (source === 'Other') {
+                customSourceGroup.style.display = 'block';
+            } else {
+                customSourceGroup.style.display = 'none';
+                document.getElementById('editComponentCustomSource').value = '';
+            }
+        }
+        
+        function addCustomSource(type, sourceName) {
+            if (type === 'purchased') {
+                if (!customPurchasedSources.includes(sourceName)) {
+                    customPurchasedSources.push(sourceName);
+                    customPurchasedSources.sort();
+                }
+            } else if (type === 'make') {
+                if (!customMakeSources.includes(sourceName)) {
+                    customMakeSources.push(sourceName);
+                    customMakeSources.sort();
+                }
+            }
+            
+            localStorage.setItem('bbc_customPurchasedSources', JSON.stringify(customPurchasedSources));
+            localStorage.setItem('bbc_customMakeSources', JSON.stringify(customMakeSources));
+        }
+        
+        function loadCustomSources() {
+            const savedPurchased = localStorage.getItem('bbc_customPurchasedSources');
+            const savedMake = localStorage.getItem('bbc_customMakeSources');
+            
+            if (savedPurchased) customPurchasedSources = JSON.parse(savedPurchased);
+            if (savedMake) customMakeSources = JSON.parse(savedMake);
         }
         
         // Login handling
@@ -994,6 +1180,8 @@ Previous versions available in CHANGELOG files.
             initializeDefaultData();
             loadFromLocalStorage();
             loadBusinessName();
+            loadPeriodFilter();
+            loadCustomSources();
             tryLoadFromFirebase();
         }
         
@@ -1077,14 +1265,20 @@ Previous versions available in CHANGELOG files.
                     "Cap Part": { 
                         onHand: 99, onOrder: 0, eta: "", 
                         costType: "piece", costPerPiece: 5.00,
-                        type: "make", source: "Other", partNumber: "", productLink: ""
+                        type: "make", source: "3D Print", partNumber: "", productLink: ""
                     }
                 };
             } else {
                 // Migrate old components
                 for (const [name, comp] of Object.entries(components)) {
                     if (!comp.type) comp.type = name === "Cap Part" ? "make" : "purchased";
-                    if (!comp.source) comp.source = name === "Cap Part" ? "Other" : "McMaster";
+                    if (!comp.source) {
+                        if (comp.type === "make") {
+                            comp.source = "3D Print";
+                        } else {
+                            comp.source = "McMaster";
+                        }
+                    }
                     if (comp.partNumber === undefined) comp.partNumber = "";
                     if (comp.productLink === undefined) comp.productLink = "";
                 }
@@ -1161,11 +1355,23 @@ Previous versions available in CHANGELOG files.
                 const savedComponents = localStorage.getItem('bbc_components');
                 const savedKits = localStorage.getItem('bbc_kits');
                 const savedNextOrderId = localStorage.getItem('bbc_nextOrderId');
+                const savedLastUpdate = localStorage.getItem('bbc_lastUpdateDate');
                 
                 if (savedOrders) orders = JSON.parse(savedOrders);
                 if (savedComponents) components = JSON.parse(savedComponents);
                 if (savedKits) kits = JSON.parse(savedKits);
                 if (savedNextOrderId) nextOrderId = parseInt(savedNextOrderId);
+                if (savedLastUpdate) lastUpdateDate = new Date(savedLastUpdate);
+                
+                // Migrate old orders to add date if missing
+                orders.forEach(order => {
+                    if (!order.createdAt) {
+                        order.createdAt = new Date().toISOString();
+                    }
+                    if (order.shippingCost === undefined) {
+                        order.shippingCost = 0;
+                    }
+                });
                 
                 console.log(`Loaded: ${orders.length} orders, ${Object.keys(components).length} components, ${Object.keys(kits).length} kits`);
                 updateFirebaseStatus('offline', 'Offline Mode');
@@ -1182,6 +1388,8 @@ Previous versions available in CHANGELOG files.
                 localStorage.setItem('bbc_kits', JSON.stringify(kits));
                 localStorage.setItem('bbc_nextOrderId', nextOrderId.toString());
                 localStorage.setItem('bbc_businessName', businessName);
+                localStorage.setItem('bbc_lastUpdateDate', new Date().toISOString());
+                lastUpdateDate = new Date();
             } catch (error) {
                 console.error('Error saving to localStorage:', error);
             }
@@ -1209,7 +1417,7 @@ Previous versions available in CHANGELOG files.
                 const firebaseKits = {};
                 kitsSnapshot.forEach(doc => firebaseKits[doc.id] = doc.data());
                 
-                // Load nextOrderId
+                // Load metadata
                 const docRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'nextOrderId');
                 const docSnap = await window.firebaseGetDoc(docRef);
                 let firebaseNextOrderId = 1;
@@ -1223,6 +1431,15 @@ Previous versions available in CHANGELOG files.
                     document.getElementById('businessName').textContent = businessName;
                 }
                 
+                // Load custom sources
+                const sourcesRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'customSources');
+                const sourcesSnap = await window.firebaseGetDoc(sourcesRef);
+                if (sourcesSnap.exists()) {
+                    const sourcesData = sourcesSnap.data();
+                    if (sourcesData.purchased) customPurchasedSources = sourcesData.purchased;
+                    if (sourcesData.make) customMakeSources = sourcesData.make;
+                }
+                
                 console.log(`Firebase has: ${firebaseOrders.length} orders, ${Object.keys(firebaseComponents).length} components, ${Object.keys(firebaseKits).length} kits`);
                 
                 let needsSync = false;
@@ -1234,7 +1451,13 @@ Previous versions available in CHANGELOG files.
                     // Migrate old data
                     for (const [name, comp] of Object.entries(components)) {
                         if (!comp.type) comp.type = name === "Cap Part" ? "make" : "purchased";
-                        if (!comp.source) comp.source = "McMaster";
+                        if (!comp.source) {
+                            if (comp.type === "make") {
+                                comp.source = "3D Print";
+                            } else {
+                                comp.source = "McMaster";
+                            }
+                        }
                         if (comp.partNumber === undefined) comp.partNumber = "";
                         if (comp.productLink === undefined) comp.productLink = "";
                     }
@@ -1253,6 +1476,16 @@ Previous versions available in CHANGELOG files.
                 if (firebaseOrders.length > 0) {
                     orders = firebaseOrders;
                     nextOrderId = firebaseNextOrderId;
+                    
+                    // Migrate old orders
+                    orders.forEach(order => {
+                        if (!order.createdAt) {
+                            order.createdAt = new Date().toISOString();
+                        }
+                        if (order.shippingCost === undefined) {
+                            order.shippingCost = 0;
+                        }
+                    });
                 }
                 
                 saveToLocalStorage();
@@ -1308,6 +1541,12 @@ Previous versions available in CHANGELOG files.
                 const businessNameRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'businessName');
                 batch.set(businessNameRef, { value: businessName });
                 
+                const customSourcesRef = window.firebaseDoc(window.firebaseDB, 'metadata', 'customSources');
+                batch.set(customSourcesRef, { 
+                    purchased: customPurchasedSources,
+                    make: customMakeSources
+                });
+                
                 await batch.commit();
                 updateFirebaseStatus('connected', 'Synced');
                 setTimeout(() => updateFirebaseStatus('connected', 'Connected'), 2000);
@@ -1343,7 +1582,7 @@ Previous versions available in CHANGELOG files.
             setTimeout(() => toast.classList.remove('show'), 3000);
         }
         
-        // CSV Import Handler - improved deduplication
+        // CSV Import Handler
         async function handleCSVImport(event) {
             const file = event.target.files[0];
             if (!file) return;
@@ -1372,12 +1611,17 @@ Previous versions available in CHANGELOG files.
                         if (!orderNum || !orderNum.startsWith('#')) return;
                         
                         if (!csvOrdersMap.has(orderNum)) {
+                            const shippingCost = parseFloat(row['Shipping']) || 0;
+                            const createdAt = row['Created at'] ? new Date(row['Created at']).toISOString() : new Date().toISOString();
+                            
                             csvOrdersMap.set(orderNum, {
                                 shopifyOrderNumber: orderNum,
                                 name: row['Billing Name']?.trim() || row['Shipping Name']?.trim() || 'Unknown',
                                 paid: row['Financial Status']?.toLowerCase() === 'paid',
                                 shipped: row['Fulfillment Status']?.toLowerCase() === 'fulfilled',
                                 tracking: '',
+                                shippingCost: shippingCost,
+                                createdAt: createdAt,
                                 products: {}
                             });
                         }
@@ -1418,6 +1662,7 @@ Previous versions available in CHANGELOG files.
                             if (existingOrder.name !== csvOrder.name) hasChanges = true;
                             if (existingOrder.paid !== csvOrder.paid) hasChanges = true;
                             if (existingOrder.shipped !== csvOrder.shipped) hasChanges = true;
+                            if (existingOrder.shippingCost !== csvOrder.shippingCost) hasChanges = true;
                             
                             // Check products
                             for (const [kitKey, qty] of Object.entries(csvOrder.products)) {
@@ -1432,6 +1677,7 @@ Previous versions available in CHANGELOG files.
                                 existingOrder.name = csvOrder.name;
                                 existingOrder.paid = csvOrder.paid;
                                 existingOrder.shipped = csvOrder.shipped;
+                                existingOrder.shippingCost = csvOrder.shippingCost;
                                 
                                 // Update product quantities
                                 for (const [kitKey, qty] of Object.entries(csvOrder.products)) {
@@ -1450,7 +1696,9 @@ Previous versions available in CHANGELOG files.
                                 name: csvOrder.name,
                                 paid: csvOrder.paid,
                                 shipped: csvOrder.shipped,
-                                tracking: ''
+                                tracking: '',
+                                shippingCost: csvOrder.shippingCost,
+                                createdAt: csvOrder.createdAt
                             };
                             
                             // Add products
@@ -1656,7 +1904,8 @@ Previous versions available in CHANGELOG files.
         }
         
         function calculateStats() {
-            const activeOrders = orders.filter(o => !o.shipped);
+            const filteredOrders = getFilteredOrders();
+            const activeOrders = filteredOrders.filter(o => !o.shipped);
             const paidOrders = activeOrders.filter(o => o.paid);
             
             let totalRevenue = 0;
@@ -1700,7 +1949,8 @@ Previous versions available in CHANGELOG files.
         
         function updateStats() {
             const stats = calculateStats();
-            const activeOrders = orders.filter(o => !o.shipped);
+            const filteredOrders = getFilteredOrders();
+            const activeOrders = filteredOrders.filter(o => !o.shipped);
             const paidOrders = activeOrders.filter(o => o.paid);
             
             let readyToShipCount = 0;
@@ -1710,7 +1960,25 @@ Previous versions available in CHANGELOG files.
                 }
             });
             
+            // Update sub-labels based on period
+            let ordersSub = 'Active orders';
+            switch(currentPeriod) {
+                case 'last_update':
+                    ordersSub = 'Since last update';
+                    break;
+                case 'last_month':
+                    ordersSub = 'Last month';
+                    break;
+                case 'this_year':
+                    ordersSub = 'This year';
+                    break;
+                case 'all_time':
+                    ordersSub = 'All time';
+                    break;
+            }
+            
             document.getElementById('totalOrders').textContent = stats.totalOrders;
+            document.getElementById('totalOrdersSub').textContent = ordersSub;
             document.getElementById('readyToShip').textContent = readyToShipCount;
             const readyPct = paidOrders.length > 0 ? ((readyToShipCount / paidOrders.length) * 100).toFixed(1) : 0;
             document.getElementById('readyPercentage').textContent = `${readyPct}% ready`;
@@ -1954,7 +2222,7 @@ Previous versions available in CHANGELOG files.
             tbody.innerHTML = '';
             const shippedOrders = orders.filter(o => o.shipped);
             if (shippedOrders.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" style="text-align: center; color: #999;">No shipped orders yet</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; color: #999;">No shipped orders yet</td></tr>';
                 return;
             }
             shippedOrders.forEach((order) => {
@@ -1968,10 +2236,13 @@ Previous versions available in CHANGELOG files.
                     }
                 }
                 
+                const orderNumber = order.shopifyOrderNumber || '-';
+                
                 const row = document.createElement('tr');
                 row.style.cursor = 'pointer';
                 row.onclick = () => editOrder(order.id);
                 row.innerHTML = `
+                    <td><strong>${orderNumber}</strong></td>
                     <td><strong>${order.name}</strong></td>
                     <td>${items.join(', ')}</td>
                     <td><strong>$${amount.toFixed(2)}</strong></td>
@@ -1992,6 +2263,7 @@ Previous versions available in CHANGELOG files.
             document.getElementById('orderModalShipBtn').style.display = 'none';
             document.getElementById('newOrderName').value = '';
             document.getElementById('newOrderPaid').checked = false;
+            document.getElementById('orderInfoSection').innerHTML = '';
             
             const summaryView = document.getElementById('orderSummaryView');
             if (summaryView) summaryView.style.display = 'block';
@@ -2077,38 +2349,48 @@ Previous versions available in CHANGELOG files.
                 }
             }
             
-            const statusDiv = document.getElementById('orderInventoryStatus');
-            if (statusDiv) {
-                if (Object.keys(componentsNeeded).length === 0) {
-                    statusDiv.innerHTML = '<div style="color: #999;">-</div>';
-                } else {
-                    let allAvailable = true;
-                    const statusHTML = Object.entries(componentsNeeded).map(([name, needed]) => {
-                        const comp = components[name];
-                        if (!comp) {
-                            allAvailable = false;
-                            return `<div style="padding: 6px 0; color: #ef4444;">✗ ${name} - Component not found</div>`;
+            // Only show inventory status if order is not shipped
+            const isShipped = currentEditOrderId ? orders.find(o => o.id === currentEditOrderId)?.shipped : false;
+            const inventorySection = document.getElementById('orderInventoryStatusSection');
+            
+            if (isShipped) {
+                inventorySection.style.display = 'none';
+            } else {
+                inventorySection.style.display = 'block';
+                
+                const statusDiv = document.getElementById('orderInventoryStatus');
+                if (statusDiv) {
+                    if (Object.keys(componentsNeeded).length === 0) {
+                        statusDiv.innerHTML = '<div style="color: #999;">-</div>';
+                    } else {
+                        let allAvailable = true;
+                        const statusHTML = Object.entries(componentsNeeded).map(([name, needed]) => {
+                            const comp = components[name];
+                            if (!comp) {
+                                allAvailable = false;
+                                return `<div style="padding: 6px 0; color: #ef4444;">✗ ${name} - Component not found</div>`;
+                            }
+                            
+                            const available = comp.onHand >= needed;
+                            if (!available) allAvailable = false;
+                            
+                            return `
+                                <div style="padding: 6px 0; display: flex; justify-content: space-between;">
+                                    <span>${name}</span>
+                                    <span style="color: ${available ? '#10b981' : '#ef4444'}; font-weight: 600;">
+                                        ${available ? '✓' : '✗'} ${comp.onHand} / ${needed} available
+                                    </span>
+                                </div>
+                            `;
+                        }).join('');
+                        
+                        statusDiv.innerHTML = statusHTML;
+                        
+                        if (allAvailable && Object.keys(componentsNeeded).length > 0) {
+                            statusDiv.innerHTML += '<div style="margin-top: 10px; padding: 10px; background: #d1fae5; color: #065f46; border-radius: 6px; font-weight: 600; text-align: center;">✓ All components available - Ready to build!</div>';
+                        } else if (Object.keys(componentsNeeded).length > 0) {
+                            statusDiv.innerHTML += '<div style="margin-top: 10px; padding: 10px; background: #fee2e2; color: #991b1b; border-radius: 6px; font-weight: 600; text-align: center;">⚠ Missing components - Cannot fulfill yet</div>';
                         }
-                        
-                        const available = comp.onHand >= needed;
-                        if (!available) allAvailable = false;
-                        
-                        return `
-                            <div style="padding: 6px 0; display: flex; justify-content: space-between;">
-                                <span>${name}</span>
-                                <span style="color: ${available ? '#10b981' : '#ef4444'}; font-weight: 600;">
-                                    ${available ? '✓' : '✗'} ${comp.onHand} / ${needed} available
-                                </span>
-                            </div>
-                        `;
-                    }).join('');
-                    
-                    statusDiv.innerHTML = statusHTML;
-                    
-                    if (allAvailable && Object.keys(componentsNeeded).length > 0) {
-                        statusDiv.innerHTML += '<div style="margin-top: 10px; padding: 10px; background: #d1fae5; color: #065f46; border-radius: 6px; font-weight: 600; text-align: center;">✓ All components available - Ready to build!</div>';
-                    } else if (Object.keys(componentsNeeded).length > 0) {
-                        statusDiv.innerHTML += '<div style="margin-top: 10px; padding: 10px; background: #fee2e2; color: #991b1b; border-radius: 6px; font-weight: 600; text-align: center;">⚠ Missing components - Cannot fulfill yet</div>';
                     }
                 }
             }
@@ -2215,7 +2497,9 @@ Previous versions available in CHANGELOG files.
                 name, 
                 paid, 
                 shipped: false, 
-                tracking: "" 
+                tracking: "",
+                shippingCost: 0,
+                createdAt: new Date().toISOString()
             };
             
             let hasAnyQuantity = false;
@@ -2247,6 +2531,33 @@ Previous versions available in CHANGELOG files.
             document.getElementById('orderModalTitle').textContent = 'Edit Order - ' + order.name;
             document.getElementById('newOrderName').value = order.name;
             
+            // Show order info section
+            const orderInfoSection = document.getElementById('orderInfoSection');
+            let infoHTML = '';
+            
+            if (order.shopifyOrderNumber) {
+                infoHTML += `<div class="info-row">
+                    <span class="info-label">Order Number:</span>
+                    <span class="info-value">${order.shopifyOrderNumber}</span>
+                </div>`;
+            }
+            
+            if (order.shippingCost > 0) {
+                infoHTML += `<div class="info-row">
+                    <span class="info-label">Shipping Cost:</span>
+                    <span class="info-value">$${order.shippingCost.toFixed(2)}</span>
+                </div>`;
+            }
+            
+            if (order.shipped && order.tracking) {
+                infoHTML += `<div class="info-row">
+                    <span class="info-label">Tracking:</span>
+                    <span class="info-value">${order.tracking}</span>
+                </div>`;
+            }
+            
+            orderInfoSection.innerHTML = infoHTML;
+            
             const orderData = {};
             for (const kitName of Object.keys(kits)) {
                 orderData[kitName.toLowerCase()] = getKitQtyFromOrder(order, kitName);
@@ -2267,7 +2578,7 @@ Previous versions available in CHANGELOG files.
             document.getElementById('orderModalDeleteBtn').style.display = 'inline-block';
             
             const ready = canFulfillOrder(order);
-            if (order.paid && ready) {
+            if (order.paid && ready && !order.shipped) {
                 document.getElementById('orderModalShipBtn').style.display = 'inline-block';
             } else {
                 document.getElementById('orderModalShipBtn').style.display = 'none';
@@ -2399,7 +2710,7 @@ Previous versions available in CHANGELOG files.
             document.getElementById('editComponentName').value = '';
             document.getElementById('editComponentName').disabled = false;
             document.getElementById('editComponentType').value = 'purchased';
-            document.getElementById('editComponentSource').value = 'Amazon';
+            updateSourceOptions();
             document.getElementById('editComponentPartNumber').value = '';
             document.getElementById('editComponentProductLink').value = '';
             document.getElementById('editComponentOnHand').value = '0';
@@ -2409,6 +2720,7 @@ Previous versions available in CHANGELOG files.
             document.getElementById('editComponentCostPiece').value = '';
             document.getElementById('editComponentBoxSize').value = '';
             document.getElementById('editComponentCostBox').value = '';
+            document.getElementById('editComponentCustomSource').value = '';
             toggleCostFields();
             document.getElementById('componentDeleteBtn').style.display = 'none';
             document.getElementById('editComponentModal').classList.add('active');
@@ -2436,7 +2748,8 @@ Previous versions available in CHANGELOG files.
         function saveComponentEdit() {
             const name = document.getElementById('editComponentName').value.trim();
             const type = document.getElementById('editComponentType').value;
-            const source = document.getElementById('editComponentSource').value;
+            let source = document.getElementById('editComponentSource').value;
+            const customSource = document.getElementById('editComponentCustomSource').value.trim();
             const partNumber = document.getElementById('editComponentPartNumber').value.trim();
             const productLink = document.getElementById('editComponentProductLink').value.trim();
             const onHand = parseInt(document.getElementById('editComponentOnHand').value) || 0;
@@ -2446,6 +2759,15 @@ Previous versions available in CHANGELOG files.
             
             if (!name) {
                 alert('Please enter a component name');
+                return;
+            }
+            
+            // Handle custom source
+            if (source === 'Other' && customSource) {
+                source = customSource;
+                addCustomSource(type, customSource);
+            } else if (source === 'Other' && !customSource) {
+                alert('Please enter a custom source name or select a different source');
                 return;
             }
             
@@ -2499,7 +2821,22 @@ Previous versions available in CHANGELOG files.
             document.getElementById('editComponentName').value = componentName;
             document.getElementById('editComponentName').disabled = true;
             document.getElementById('editComponentType').value = comp.type || 'purchased';
-            document.getElementById('editComponentSource').value = comp.source || 'Amazon';
+            updateSourceOptions();
+            
+            // Check if source is custom
+            const sourceSelect = document.getElementById('editComponentSource');
+            const sourceOptions = Array.from(sourceSelect.options).map(o => o.value);
+            
+            if (sourceOptions.includes(comp.source)) {
+                document.getElementById('editComponentSource').value = comp.source;
+                document.getElementById('customSourceGroup').style.display = 'none';
+            } else {
+                // Source is custom
+                document.getElementById('editComponentSource').value = 'Other';
+                document.getElementById('customSourceGroup').style.display = 'block';
+                document.getElementById('editComponentCustomSource').value = comp.source;
+            }
+            
             document.getElementById('editComponentPartNumber').value = comp.partNumber || '';
             document.getElementById('editComponentProductLink').value = comp.productLink || '';
             document.getElementById('editComponentOnHand').value = comp.onHand;
@@ -2802,6 +3139,9 @@ Previous versions available in CHANGELOG files.
         window.selectAllText = selectAllText;
         window.handleBusinessNameKeypress = handleBusinessNameKeypress;
         window.saveBusinessName = saveBusinessName;
+        window.updatePeriodFilter = updatePeriodFilter;
+        window.updateSourceOptions = updateSourceOptions;
+        window.handleSourceChange = handleSourceChange;
     </script>
 </body>
 </html>
